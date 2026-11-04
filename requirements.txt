@@ -1,0 +1,3 @@
+# aicv has zero runtime dependencies (stdlib only).
+# Optional: ruff for the richer lint layer; pytest for development.
+pytest>=8.0

@@ -1,0 +1,9 @@
+# aicv configuration — toggle individual rules.
+# Copy to your repo root and adjust. Missing keys fall back to defaults.
+[rules]
+dangerous_call = true      # eval / exec / compile / __import__
+shell_exec = true          # os.system, os.popen, subprocess string calls
+hardcoded_secret = true    # api keys, tokens, passwords in source
+sql_string_format = true   # SQL built via f-string / .format / %
+dead_import = false        # noisy; enable per-repo if wanted
+syntax_error = true

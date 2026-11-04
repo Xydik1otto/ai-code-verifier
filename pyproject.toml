@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aicv"
+version = "0.1.0"
+description = "AI Code Verifier — verification gate for AI-generated code (CLI + GitHub Action)"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+aicv = "aicv.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["aicv*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

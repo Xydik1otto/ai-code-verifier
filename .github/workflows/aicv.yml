@@ -1,0 +1,29 @@
+# aicv — verification gate for AI-generated code (MVP example workflow).
+# Fails the PR when aicv finds error-severity findings in changed files.
+name: aicv
+
+on:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install aicv
+        run: |
+          python -m pip install --upgrade pip
+          pip install /path/to/aicv  # or: pip install aicv (once published)
+          pip install ruff || true   # optional: enables the ruff layer
+      - name: Run aicv against PR diff
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: aicv ci

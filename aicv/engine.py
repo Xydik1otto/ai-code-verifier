@@ -1,0 +1,154 @@
+"""Core engine: git diff -> changed files -> checks -> report."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from .checks import RULES, check_js_ts_file, check_python_file, run_ruff
+
+PY_EXT = {".py"}
+JS_EXT = {".js", ".ts", ".mjs", ".jsx", ".tsx"}
+REPORT_DIR = ".aicv"
+REPORT_LATEST = "latest"
+
+
+def _git(args: List[str], cwd: Path) -> Optional[str]:
+    try:
+        proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def changed_files(root: Path, staged: bool = False, base_ref: Optional[str] = None) -> List[Path]:
+    """Files touched by git diff (working tree vs HEAD, or staged, or vs base_ref)."""
+    names = []
+    if base_ref:
+        diff = _git(["diff", "--name-only", f"{base_ref}...HEAD"], root)
+        if diff is None:
+            return []
+        names += [line.strip() for line in diff.splitlines() if line.strip()]
+    elif staged:
+        diff = _git(["diff", "--cached", "--name-only"], root)
+        if diff is None:
+            return []
+        names += [line.strip() for line in diff.splitlines() if line.strip()]
+    else:
+        # tracked modifications (may fail in a repo with no commits yet)
+        diff = _git(["diff", "HEAD", "--name-only"], root)
+        if diff:
+            names += [line.strip() for line in diff.splitlines() if line.strip()]
+        # New AI-generated files are usually untracked before staging; include
+        # them for the working-tree target regardless of diff success.
+        untracked = _git(["ls-files", "--others", "--exclude-standard"], root) or ""
+        names += [line.strip() for line in untracked.splitlines() if line.strip()]
+    files = []
+    for line in names:
+        p = (root / line).resolve()
+        if p.is_file() and not p.name.startswith("."):
+            files.append(p)
+    return files
+
+
+def load_config(root: Path) -> Dict[str, bool]:
+    """Read .aicv.toml if present: [rules] section with rule_id = true/false."""
+    enabled = {rid: spec["default"] for rid, spec in RULES.items()}
+    cfg = root / ".aicv.toml"
+    if not cfg.is_file():
+        return enabled
+    try:
+        import tomllib
+        data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        return enabled
+    for rid, val in (data.get("rules") or {}).items():
+        if rid in enabled:
+            enabled[rid] = bool(val)
+    return enabled
+
+
+def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
+               use_ruff: bool = True) -> List[Dict]:
+    findings: List[Dict] = []
+    py_paths: List[Path] = []
+    for path in files:
+        try:
+            rel = str(path.relative_to(root)).replace("\\", "/")
+        except ValueError:
+            rel = path.name
+        ext = path.suffix.lower()
+        if ext in PY_EXT:
+            findings += check_python_file(path, rel, enabled)
+            py_paths.append(path)
+        elif ext in JS_EXT:
+            findings += check_js_ts_file(path, rel, enabled)
+    if use_ruff and py_paths:
+        findings += run_ruff(py_paths)
+    return findings
+
+
+def severity_counts(findings: List[Dict]) -> Dict[str, int]:
+    counts = {"error": 0, "warning": 0}
+    for f in findings:
+        counts[f["severity"]] = counts.get(f["severity"], 0) + 1
+    return counts
+
+
+def exit_code(findings: List[Dict]) -> int:
+    return 1 if any(f["severity"] == "error" for f in findings) else 0
+
+
+def render_markdown(target: str, files: List[Path], findings: List[Dict], root: Path) -> str:
+    counts = severity_counts(findings)
+    lines = [
+        "# aicv verification report",
+        "",
+        f"- Target: `{target}`",
+        f"- Date: {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        f"- Files checked: {len(files)}",
+        f"- Findings: **{counts.get('error', 0)} errors**, {counts.get('warning', 0)} warnings",
+        f"- Verdict: {'FAIL' if exit_code(findings) else 'PASS'}",
+        "",
+    ]
+    if files:
+        lines.append("## Files")
+        for p in files:
+            try:
+                rel = p.relative_to(root).as_posix()
+            except ValueError:
+                rel = p.name
+            lines.append(f"- `{rel}`")
+        lines.append("")
+    if findings:
+        lines.append("## Findings")
+        for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"])):
+            lines.append(f"- [{f['severity'].upper()}] `{f['file']}:{f['line']}` "
+                         f"({f['rule']}) {f['message']}")
+    else:
+        lines.append("## Findings")
+        lines.append("No issues detected.")
+    return "\n".join(lines) + "\n"
+
+
+def save_report(root: Path, target: str, files: List[Path], findings: List[Dict]) -> Path:
+    d = root / REPORT_DIR
+    d.mkdir(exist_ok=True)
+    payload = {
+        "target": target,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "files": [str(p.relative_to(root)).replace("\\", "/") for p in files],
+        "findings": findings,
+        "counts": severity_counts(findings),
+        "exit_code": exit_code(findings),
+    }
+    (d / f"{REPORT_LATEST}.json").write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    md = d / f"{REPORT_LATEST}.md"
+    md.write_text(render_markdown(target, files, findings, root), encoding="utf-8")
+    return md
