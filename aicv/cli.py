@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import __version__
 from .engine import (build_verdict, changed_files, exit_code, load_config,
-                     render_sarif, run_checks, save_report)
+                     render_sarif, run_checks, save_report, severity_counts)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -105,6 +105,32 @@ def _cmd_report(args, root: Path) -> int:
     return 0
 
 
+def _cmd_verdict(args, root: Path) -> int:
+    """Agent-loop marker: runs the scan and prints a parseable verdict block
+    on stdout. Does not write .aicv/ report artifacts."""
+    files = changed_files(root, staged=args.staged)
+    target = "staged" if args.staged else "diff HEAD"
+    if not files:
+        print(f"=== AICV VERDICT: PASS | target={target} | files=0 errors=0 warnings=0 ===")
+        return 0
+    enabled = load_config(root)
+    findings = run_checks(root, files, enabled, use_ruff=not args.no_ruff)
+    counts = severity_counts(findings)
+    verdict = "FAIL" if exit_code(findings) else "PASS"
+    marker = (f"=== AICV VERDICT: {verdict} | target={target} "
+              f"| files={len(files)} errors={counts.get('error', 0)} "
+              f"warnings={counts.get('warning', 0)} ===")
+    if args.summary:
+        print(marker)
+    else:
+        print(marker)
+        for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"])):
+            print(f"[{f['severity'].upper()}] {f['file']}:{f['line']} "
+                  f"({f['rule']}) {f['message']}")
+        print("=== AICV VERDICT END ===")
+    return exit_code(findings)
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="aicv",
                                  description="Verification gate for AI-generated code")
@@ -137,6 +163,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_ci.add_argument("--json", action="store_true")
     p_ci.add_argument("--sarif", action="store_true")
     p_ci.set_defaults(func=_cmd_ci)
+
+    p_verdict = sub.add_parser(
+        "verdict", help="agent-loop marker verdict (no report files written)")
+    p_verdict.add_argument("--staged", action="store_true")
+    p_verdict.add_argument("--no-ruff", action="store_true")
+    p_verdict.add_argument("--summary", action="store_true",
+                           help="single marker line only")
+    p_verdict.set_defaults(func=_cmd_verdict)
     return ap
 
 

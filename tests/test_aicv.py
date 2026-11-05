@@ -236,6 +236,43 @@ def test_init_refuses_overwrite(git_repo, capsys):
     assert "dead_import = false" in (git_repo / ".aicv.toml").read_text(encoding="utf-8")
 
 
+# ---------- v0.3: aicv verdict (agent-loop marker) ----------
+
+def test_verdict_fail_block(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["verdict", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert out.startswith("=== AICV VERDICT: FAIL | target=diff HEAD | files=1 errors=")
+    assert "[ERROR] bad.py:" in out
+    assert out.rstrip().endswith("=== AICV VERDICT END ===")
+    assert not (git_repo / ".aicv" / "latest.md").exists(), \
+        "verdict must not write report artifacts"
+
+
+def test_verdict_summary_single_line(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["verdict", "--no-ruff", "--summary"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    assert len(lines) == 1, lines
+    assert lines[0].startswith("=== AICV VERDICT: FAIL |")
+    assert "errors=4" in lines[0]
+
+
+def test_verdict_pass_and_empty(git_repo, capsys):
+    shutil.copy(FIXTURES / "clean_code.py", git_repo / "clean.py")
+    rc = main(["verdict", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "AICV VERDICT: PASS" in out
+    # empty repo state -> PASS with files=0
+    (git_repo / "clean.py").unlink()
+    rc2 = main(["verdict", "--no-ruff"])
+    out2 = capsys.readouterr().out
+    assert rc2 == 0 and "files=0 errors=0 warnings=0" in out2
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):
