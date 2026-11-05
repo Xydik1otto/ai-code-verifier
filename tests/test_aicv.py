@@ -273,6 +273,81 @@ def test_verdict_pass_and_empty(git_repo, capsys):
     assert rc2 == 0 and "files=0 errors=0 warnings=0" in out2
 
 
+# ---------- v0.4: baseline mode ----------
+
+def test_baseline_roundtrip_and_apply():
+    findings = [
+        {"rule": "dangerous_call", "severity": "error", "file": "a.py", "line": 5,
+         "message": "m1"},
+        {"rule": "shell_exec", "severity": "error", "file": "b.py", "line": 9,
+         "message": "m2"},
+    ]
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        from aicv.engine import apply_baseline, load_baseline, save_baseline
+        save_baseline(root, findings)
+        keys = load_baseline(root)
+        assert keys is not None and len(keys) == 2
+        # identical findings -> all suppressed
+        assert apply_baseline(findings, keys) == []
+        # a NEW finding (different rule) survives
+        new = [dict(findings[0], rule="hardcoded_secret")]
+        assert apply_baseline(findings + new, keys) == new
+        # line drift makes it a new finding
+        drifted = [dict(findings[0], line=6)]
+        assert apply_baseline(findings + drifted, keys) == drifted
+
+
+def test_load_baseline_missing_returns_none(tmp_path):
+    from aicv.engine import load_baseline
+    assert load_baseline(tmp_path) is None
+
+
+def test_baseline_corrupt_file_returns_none(tmp_path):
+    from aicv.engine import load_baseline
+    (tmp_path / ".aicv").mkdir()
+    (tmp_path / ".aicv" / "baseline.json").write_text("not json{", encoding="utf-8")
+    assert load_baseline(tmp_path) is None
+
+
+def test_cli_baseline_then_check_passes_on_known_findings(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["baseline", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "recorded" in out
+    assert (git_repo / ".aicv" / "baseline.json").is_file()
+    capsys.readouterr()
+    # same findings again -> all known -> PASS
+    rc2 = main(["check", "--no-ruff", "--baseline"])
+    out2 = capsys.readouterr().out
+    assert rc2 == 0, out2
+    assert "known finding(s) suppressed" in out2
+    assert "0 new" in out2
+
+
+def test_cli_check_baseline_fails_only_on_new_finding(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    main(["baseline", "--no-ruff"])
+    capsys.readouterr()
+    # a NEW bad file with a finding not in the baseline
+    (git_repo / "new_bad.py").write_text("import os\nos.system('ls ' + user_input)\n")
+    rc = main(["check", "--no-ruff", "--baseline"])
+    payload = None
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "new_bad.py" in out
+    assert "bad.py" not in out.replace("new_bad.py", ""), \
+        "baseline findings must not be reported individually"
+
+
+def test_cli_check_baseline_without_baseline_file(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["check", "--no-ruff", "--baseline"])
+    capsys.readouterr()
+    assert rc == 2, "--baseline without a recorded baseline must fail with usage error"
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):

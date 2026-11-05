@@ -8,8 +8,9 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .engine import (build_verdict, changed_files, exit_code, load_config,
-                     render_sarif, run_checks, save_report, severity_counts)
+from .engine import (apply_baseline, build_verdict, changed_files, exit_code,
+                     load_baseline, load_config, render_sarif, run_checks,
+                     save_baseline, save_report, severity_counts)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -38,6 +39,17 @@ def _cmd_ci(args, root: Path) -> int:
 def _scan(args, root: Path, files, target: str) -> int:
     enabled = load_config(root)
     findings = run_checks(root, files, enabled, use_ruff=not args.no_ruff)
+    baseline_note = None
+    if getattr(args, "baseline", False):
+        keys = load_baseline(root)
+        if keys is None:
+            print("aicv: --baseline set but .aicv/baseline.json not found — "
+                  "run `aicv baseline` first.", file=sys.stderr)
+            return 2
+        total = len(findings)
+        findings = apply_baseline(findings, keys)
+        baseline_note = (f"baseline: {total - len(findings)} known finding(s) "
+                         f"suppressed, {len(findings)} new")
     md = save_report(root, target, files, findings)
     counts = {"error": 0, "warning": 0}
     for f in findings:
@@ -49,6 +61,8 @@ def _scan(args, root: Path, files, target: str) -> int:
           for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"]))],
         f"report: {md}",
     ]
+    if baseline_note:
+        human.insert(1, baseline_note)
     rc = exit_code(findings)
     if getattr(args, "sarif", False):
         import json as _j
@@ -69,6 +83,25 @@ def _scan(args, root: Path, files, target: str) -> int:
         for line in human:
             print(line)
     return rc
+
+
+def _cmd_baseline(args, root: Path) -> int:
+    """Record the current findings as accepted legacy debt (.aicv/baseline.json)."""
+    files = changed_files(root, staged=args.staged)
+    if not files:
+        target = "staged" if args.staged else "diff HEAD"
+        print(f"aicv baseline: no changed .py/.js/.ts files for target '{target}' "
+              f"— nothing to record.")
+        return 0
+    enabled = load_config(root)
+    findings = run_checks(root, files, enabled, use_ruff=not args.no_ruff)
+    p = save_baseline(root, findings)
+    counts = severity_counts(findings)
+    print(f"aicv baseline: recorded {len(findings)} finding(s) "
+          f"({counts.get('error', 0)} error(s), {counts.get('warning', 0)} warning(s)) "
+          f"-> {p}")
+    print("aicv baseline: `aicv check --baseline` will now fail only on NEW findings.")
+    return 0
 
 
 def _cmd_init(args, root: Path) -> int:
@@ -146,6 +179,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--sarif", action="store_true",
                          help="also write a SARIF 2.1.0 report (.aicv/latest.sarif) "
                               "for GitHub code scanning")
+    p_check.add_argument("--baseline", action="store_true",
+                         help="fail only on NEW findings not recorded in "
+                              ".aicv/baseline.json (see `aicv baseline`)")
     p_check.set_defaults(func=_cmd_check)
 
     p_rep = sub.add_parser("report", help="print the latest verification report")
@@ -163,6 +199,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_ci.add_argument("--json", action="store_true")
     p_ci.add_argument("--sarif", action="store_true")
     p_ci.set_defaults(func=_cmd_ci)
+
+    p_baseline = sub.add_parser(
+        "baseline", help="record current findings as accepted legacy debt "
+                         "(.aicv/baseline.json)")
+    p_baseline.add_argument("--staged", action="store_true", help="only staged changes")
+    p_baseline.add_argument("--no-ruff", action="store_true")
+    p_baseline.set_defaults(func=_cmd_baseline)
 
     p_verdict = sub.add_parser(
         "verdict", help="agent-loop marker verdict (no report files written)")

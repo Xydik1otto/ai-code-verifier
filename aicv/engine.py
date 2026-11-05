@@ -220,6 +220,48 @@ def render_markdown(target: str, files: List[Path], findings: List[Dict], root: 
     return "\n".join(lines) + "\n"
 
 
+# ---------- baseline mode ----------
+# `aicv baseline` records the current findings as accepted legacy debt;
+# `check --baseline` then fails only on NEW findings (not present in the
+# baseline). A finding is identified by (file, line, rule).
+
+
+def _finding_key(f: Dict) -> tuple:
+    return (f["file"], int(f["line"]), f["rule"])
+
+
+def save_baseline(root: Path, findings: List[Dict]) -> Path:
+    d = root / REPORT_DIR
+    d.mkdir(exist_ok=True)
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "findings": findings,
+    }
+    p = d / "baseline.json"
+    p.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return p
+
+
+def load_baseline(root: Path) -> Optional[set]:
+    """Set of baseline finding keys, or None when no baseline exists."""
+    p = root / REPORT_DIR / "baseline.json"
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    try:
+        return {_finding_key(f) for f in data.get("findings", [])}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def apply_baseline(findings: List[Dict], baseline_keys: set) -> List[Dict]:
+    """Keep only findings that are NOT recorded in the baseline (new ones)."""
+    return [f for f in findings if _finding_key(f) not in baseline_keys]
+
+
 def save_report(root: Path, target: str, files: List[Path], findings: List[Dict]) -> Path:
     d = root / REPORT_DIR
     d.mkdir(exist_ok=True)
