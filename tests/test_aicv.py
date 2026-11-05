@@ -391,6 +391,37 @@ def test_cli_ci_annotate_prints_workflow_commands(git_repo, capsys, monkeypatch)
         assert "file=" in ln and "line=" in ln
 
 
+# ---------- v0.4: TODO/FIXME detector (warning) ----------
+
+def test_todo_fixme_detected_as_warning():
+    fs = check("todo_code.py")
+    todos = findings_by_rule(fs, "todo_fixme")
+    # line 15 has `# aicv: ignore` -> suppressed; TODO (line 1) and FIXME (line 9) remain
+    assert len(todos) == 2, todos
+    assert all(f["severity"] == "warning" for f in todos)
+    assert {f["line"] for f in todos} == {1, 9}
+    assert exit_code(fs) == 0, "todo_fixme is a warning — must not fail the run"
+
+
+def test_todo_fixme_toggleable():
+    disabled = dict(DEFAULT_RULES, todo_fixme=False)
+    fs = check("todo_code.py", disabled)
+    assert findings_by_rule(fs, "todo_fixme") == []
+
+
+def test_todo_fixme_runs_on_js_ts():
+    from aicv.checks import check_js_ts_file
+    p = FIXTURES / "todo_code.py"  # checker is text-based; reuse fixture text
+    fs = check_js_ts_file(p, "todo.js", DEFAULT_RULES)
+    assert findings_by_rule(fs, "todo_fixme")
+
+
+def test_rules_registry_contains_todo_fixme():
+    from aicv.checks import RULES
+    assert RULES["todo_fixme"]["default"] is True
+    assert RULES["todo_fixme"]["severity"] == "warning"
+
+
 # ---------- v0.4: severity per rule ----------
 
 def test_rules_have_severity_defaults():

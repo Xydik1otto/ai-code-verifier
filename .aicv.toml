@@ -8,3 +8,4 @@ hardcoded_secret = true    # api keys, tokens, passwords in source
 sql_string_format = true   # SQL built via f-string / .format / %
 dead_import = false        # noisy; enable per-repo if wanted
 syntax_error = true
+todo_fixme = true          # TODO/FIXME markers left in code (warning)

@@ -33,6 +33,8 @@ RULES: Dict[str, Dict] = {
                     "default": False, "severity": "warning"},  # noisy -> opt-in
     "syntax_error": {"name": "File does not parse/compile",
                      "default": True, "severity": "error"},
+    "todo_fixme": {"name": "TODO/FIXME markers left in code",
+                   "default": True, "severity": "warning"},
 }
 
 _SECRET_PATTERNS = [
@@ -191,6 +193,19 @@ def check_sql_string_format(tree: ast.AST, rel: str) -> List[Dict]:
     return out
 
 
+def check_todo_fixme(text: str, rel: str) -> List[Dict]:
+    """TODO/FIXME markers left in the changed code -> warning (py + js/ts)."""
+    marker = re.compile(r"(?i)\b(TODO|FIXME)\b(?::|\b)")
+    out = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = marker.search(line)
+        if m:
+            out.append(_mk("todo_fixme", FINDING_SEV_WARN, rel, lineno,
+                           f"{m.group(1).upper()} marker left in code — "
+                           f"resolve or move to the tracker before merge"))
+    return out
+
+
 def check_dead_imports(tree: ast.AST, rel: str) -> List[Dict]:
     imported: List[tuple] = []  # (name, alias_used, lineno)
     for node in ast.walk(tree):
@@ -315,6 +330,8 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
         findings += check_hardcoded_secrets(text, rel)
     if enabled.get("dead_import", False):
         findings += check_dead_imports(tree, rel)
+    if enabled.get("todo_fixme", True):
+        findings += check_todo_fixme(text, rel)
     return filter_suppressed(findings, text)
 
 
@@ -332,6 +349,8 @@ def check_js_ts_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dic
                                         f"Possible {label} hardcoded in source"))
     if enabled.get("remote_exec", True):
         findings += check_remote_exec_lines(text, rel)
+    if enabled.get("todo_fixme", True):
+        findings += check_todo_fixme(text, rel)
     return filter_suppressed(findings, text)
 
 
