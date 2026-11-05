@@ -147,7 +147,7 @@ def test_py_compile_syntax_error_message():
     fs = check_py_compile(FIXTURES / "syntax_error.py", "syntax_error.py")
     assert len(fs) == 1
     assert fs[0]["rule"] == "syntax_error"
-    assert "py_compile" in fs[0]["message"]
+    assert "compile" in fs[0]["message"]
     assert fs[0]["line"] >= 1, "py_compile error must carry a line number"
 
 
@@ -726,7 +726,42 @@ def test_diff_refs_excludes_aicv_artifacts(git_repo):
     assert rels == ["ok.py"], rels
 
 
-# ---------- v1.0: first-run UX (works with no config) ----------
+# ---------- v1.0: benchmark (scripts/benchmark.py) ----------
+
+def test_benchmark_build_repo_and_fast_scan(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aicv_benchmark", PROJECT_ROOT / "scripts" / "benchmark.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.build_repo(tmp_path, 20)
+    assert len(list(tmp_path.glob("mod_*.py"))) == 20
+    # the generated repo must be scannable by the real engine
+    from aicv.engine import changed_files, run_checks, exit_code
+    from aicv.checks import RULES
+    files = changed_files(tmp_path)
+    assert len(files) == 20
+    findings = run_checks(tmp_path, files,
+                          {rid: s["default"] for rid, s in RULES.items()},
+                          use_ruff=False)
+    assert findings, "2% seeded-bad files must produce findings"
+    assert exit_code(findings) == 1
+
+
+def test_benchmark_1000_files_under_target():
+    """The README headline number: 1000-file diff must scan in <10 s.
+    Skipped when AICV_SKIP_BENCH is set (slow-machine CI)."""
+    import importlib.util, os, subprocess, time
+    if os.environ.get("AICV_SKIP_BENCH"):
+        pytest.skip("AICV_SKIP_BENCH set")
+    proc = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "benchmark.py")],
+        capture_output=True, text=True, timeout=300)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "PASS" in proc.stdout
+
+
+
 
 def test_first_run_without_config_uses_smart_defaults(git_repo, capsys):
     """A brand-new repo has no .aicv.toml — aicv must work out of the box."""

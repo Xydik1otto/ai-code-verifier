@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 FINDING_SEV_ERROR = "error"
 FINDING_SEV_WARN = "warning"
@@ -285,33 +285,25 @@ def _mk(rule, severity, file, lineno, message):
     return {"rule": rule, "severity": severity, "file": file, "line": lineno, "message": message}
 
 
-def check_py_compile(path: Path, rel: str) -> List[Dict]:
-    """Bytecode-compile the file with py_compile (stdlib) — an independent
-    syntax gate for files in the diff, with file/line diagnostics."""
-    import os
-    import py_compile
-    import tempfile
-    handle, cfile = tempfile.mkstemp(suffix=".pyc", prefix="aicv-")
-    os.close(handle)
-    try:
-        py_compile.compile(str(path), cfile=cfile, doraise=True)
-        return []
-    except py_compile.PyCompileError as e:
-        # PyCompileError.msg embeds a mini-traceback: 'File "...", line N ...'
-        m = re.search(r"(?m)^\s*File \"[^\"]+\", line (\d+)", e.msg or "")
-        lineno = int(m.group(1)) if m else 0
-        # compact message: last non-empty line of the traceback text
-        detail = [ln for ln in (e.msg or "").strip().splitlines() if ln.strip()]
-        tail = detail[-1].strip() if detail else "compilation failed"
-        return [_mk("syntax_error", FINDING_SEV_ERROR, rel, lineno,
-                    f"py_compile: {tail}")]
-    except OSError:
-        return []  # unreadable file — never block the scan on tooling failure
-    finally:
+def check_py_compile(path: Path, rel: str, text: Optional[str] = None) -> List[Dict]:
+    """Syntax gate: compile the source in memory — the same parse+codegen pass
+    py_compile performs, minus the disk I/O of writing a .pyc (which dominated
+    runtime on 1000-file diffs). Keeps file/line diagnostics."""
+    if text is None:
         try:
-            os.remove(cfile)
+            text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
-            pass
+            return []
+    try:
+        compile(text, str(path), "exec")
+        return []
+    except SyntaxError as e:
+        lineno = e.lineno or 0
+        detail = e.msg or "compilation failed"
+        return [_mk("syntax_error", FINDING_SEV_ERROR, rel, lineno,
+                    f"compile: {detail}")]
+    except (ValueError, OSError):
+        return []  # null bytes / unreadable file — never block on tooling failure
 
 
 def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
@@ -326,7 +318,7 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
                                 f"SyntaxError: {e.msg}"))
         return filter_suppressed(findings, text)
     if enabled.get("syntax_error", True):
-        findings += check_py_compile(path, rel)
+        findings += check_py_compile(path, rel, text=text)
     if enabled.get("dangerous_call", True) or enabled.get("shell_exec", True) \
             or enabled.get("sql_string_format", True):
         findings += check_dangerous_calls(tree, rel)

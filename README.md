@@ -40,6 +40,21 @@ AI пише дедалі більше коду, але людина мусить
 Мови: **Python** (AST + py_compile), **JS/TS, Go, Java** (regex pre-scan:
 секрети, remote-exec, TODO/FIXME, баланс дужок).
 
+## Швидкодія
+
+Бенчмарк на синтетичному дифі з **1000 файлів** (98% чистих, 2% з типовими
+AI-помилками, запуск CLI як у реальному циклі — `python scripts/benchmark.py`):
+
+```text
+benchmark: generated 1000 changed .py files
+benchmark: aicv check finished in 4.35s -> exit=1
+benchmark: aicv: checked 1000 file(s) [diff HEAD] — 40 error(s), 0 warning(s)
+benchmark: target 10.0s -> PASS
+```
+
+Ціль «1000-файловий диф за <10 s» виконана з триразовим запасом
+(4.35 s на Windows-ноутбуці, підготовка repo не входить у замір).
+
 ## Встановлення
 
 ```bash
