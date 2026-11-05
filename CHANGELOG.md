@@ -5,6 +5,36 @@
 Формат базується на [Keep a Changelog](https://keepachangelog.com/uk/1.1.0/),
 версіювання — [Semantic Versioning](https://semver.org/lang/uk/).
 
+## [1.0.0] — 2026-11-05
+
+### Додано
+- **Go + Java pre-scan** (regex-рівень): hardcoded secrets (спільні патерни
+  + Go `:=` та Java `String`-поля), remote-exec one-liners, TODO/FIXME,
+  баланс дужок як syntax-гейт (коментарі та строки вирізаються перед
+  підрахунком). `aicv` тепер сканує `.py`, `.js/.ts`, `.go`, `.java`.
+- **`aicv diff ref1 ref2`**: верифікація файлів між двома гілками/тегами —
+  merge-base diff, контент береться з другого ref'а (без checkout),
+  підтримує `--json`/`--sarif`/`--annotate`.
+- **Бенчмарк** `scripts/benchmark.py`: синтетичний диф із 1000 файлів,
+  замір реального CLI-прогону. Результат: **4.35 s** (ціль <10 s — виконана
+  з ~3× запасом); число опубліковане у README. Гейт `py_compile` замінено
+  на in-memory `compile()` без дискового I/O (12.7 s → 4.35 s на 1000 файлів).
+- **docs/agent-integration.md**: recipes інтеграції в агентний цикл —
+  verdict-контракт, Claude Code (PostToolUse/Stop hooks), Cursor rules,
+  CI-backstop.
+- **First-run UX** задокументований і закритий тестами: без `.aicv.toml`
+  aicv працює з розумними дефолтами (усі security-правила ON, шумне
+  `dead_import` OFF).
+- **README.en.md** — англомовна версія README (міжнародна аудиторія).
+- **INSTALL.md** — покрокове встановлення для не-програміста
+  (Windows/Linux/macOS, оновлення, перевірка працездатності).
+- Open-source hygiene: CONTRIBUTING.md, SECURITY.md, шаблони issue
+  (bug report + feature request), `.gitignore` покриває `.env`,
+  секція Contributing + GitHub topics у README.
+
+### Змінено
+- Повідомлення синтакс-гейту тепер `compile: …` замість `py_compile: …`.
+
 ## [0.4.0] — 2026-11-05
 
 ### Додано
@@ -64,6 +94,7 @@
 - pre-commit hook (`a .pre-commit-hooks.yaml`), приклад GitHub Action,
   конфіг `.aicv.toml`, ruff-адаптер з graceful fallback.
 
+[1.0.0]: https://github.com/bigpi/ai-code-verifier/compare/v0.4.0...v1.0.0
 [0.4.0]: https://github.com/bigpi/ai-code-verifier/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bigpi/ai-code-verifier/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bigpi/ai-code-verifier/compare/v0.1.0-alpha...v0.2.0

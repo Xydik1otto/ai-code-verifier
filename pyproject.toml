@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aicv"
-version = "0.4.0"
+version = "1.0.0"
 description = "AI Code Verifier — verification gate for AI-generated code (CLI + GitHub Action)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "bigpi" }]
 keywords = ["code-review", "static-analysis", "ai-generated-code", "security", "ci"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",

@@ -3,7 +3,7 @@
 [![CI](https://github.com/bigpi/ai-code-verifier/actions/workflows/tests.yml/badge.svg)](https://github.com/bigpi/ai-code-verifier/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
-[![Status: Beta](https://img.shields.io/badge/status-beta-blue.svg)](PLAN.md)
+[![Status: 1.0.0](https://img.shields.io/badge/status-1.0.0-blue.svg)](CHANGELOG.md)
 
 Verification gate для AI-згенерованого коду: CLI + GitHub Action + pre-commit hook.
 
@@ -198,7 +198,7 @@ aicv має готовий хук для [pre-commit framework](https://pre-comm
 ```yaml
 repos:
   - repo: https://github.com/bigpi/ai-code-verifier
-    rev: v0.1.0-alpha        # тег релізу
+    rev: v1.0.0              # тег релізу
     hooks:
       - id: aicv
 ```
@@ -236,11 +236,14 @@ repos:
 
 ## Статус
 
-**v0.4.0**: Python-файли (AST + py_compile) + JS/TS (regex-секрети),
-git-інтеграція, звіти (групування по файлах + severity), inline-супресії,
-machine-readable вердикт (`--json`), SARIF 2.1.0, `aicv init`, `aicv verdict`,
-baseline mode, PR annotations (`ci --annotate`), severity per rule
-(`[severity]`), TODO/FIXME детектор, автогенерований
-[docs/rules.md](docs/rules.md), pre-commit hook, конфіг, GitHub Action
-приклад, smoke/pypi-скрипти, pytest-набір.
+**v1.0.0**: Python-файли (AST + compile-гейт) + JS/TS, **Go, Java**
+(regex pre-scan), git-інтеграція, звіти (групування по файлах + severity),
+inline-супресії, machine-readable вердикт (`--json`), SARIF 2.1.0,
+`aicv init`, `aicv verdict`, `aicv diff` (дві гілки), baseline mode,
+PR annotations (`ci --annotate`), severity per rule (`[severity]`),
+TODO/FIXME детектор, автогенерований [docs/rules.md](docs/rules.md),
+бенчмарк (`scripts/benchmark.py`: 1000 файлів < 10 s), інтеграційні docs
+для агентів ([docs/agent-integration.md](docs/agent-integration.md)),
+pre-commit hook, конфіг, GitHub Action приклад, smoke/pypi-скрипти,
+pytest-набір.
 Дорожня карта — у [PLAN.md](PLAN.md), історія — у [CHANGELOG.md](CHANGELOG.md).
