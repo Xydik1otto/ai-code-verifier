@@ -138,6 +138,9 @@ errors перед warnings).
 
 ### Machine-readable вердикт для agent-loop
 
+Готові рецепти інтеграції в агентний цикл (Claude Code hooks, Cursor rules,
+verdict-контракт) — [docs/agent-integration.md](docs/agent-integration.md).
+
 `aicv check --json` друкує на stdout лише JSON (людський вивід іде у stderr) —
 зручно парсити автономним агентом, який читає знахідки і виправляє код:
 
