@@ -8,8 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .checks import (JAVA_EXT, GO_EXT, RULES, check_java_file, check_go_file,
-                     check_js_ts_file, check_python_file, run_ruff)
+from .checks import (JAVA_EXT, GO_EXT, CS_EXT, RULES, check_java_file,
+                     check_go_file, check_cs_file, check_js_ts_file,
+                     check_python_file, run_ruff)
 
 PY_EXT = {".py"}
 JS_EXT = {".js", ".ts", ".mjs", ".jsx", ".tsx"}
@@ -66,7 +67,7 @@ def changed_files(root: Path, staged: bool = False, base_ref: Optional[str] = No
 
 # ---------- ref-to-ref diff mode (`aicv diff ref1 ref2`) ----------
 
-SCAN_EXTS = PY_EXT | JS_EXT | GO_EXT | JAVA_EXT
+SCAN_EXTS = PY_EXT | JS_EXT | GO_EXT | JAVA_EXT | CS_EXT
 
 
 def diff_refs(root: Path, ref1: str, ref2: str) -> List[str]:
@@ -197,6 +198,8 @@ def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
             findings += check_go_file(path, rel, enabled)
         elif ext in JAVA_EXT:
             findings += check_java_file(path, rel, enabled)
+        elif ext in CS_EXT:
+            findings += check_cs_file(path, rel, enabled)
     if use_ruff and py_paths:
         ruff_findings = run_ruff(py_paths)
         if ruff_findings:

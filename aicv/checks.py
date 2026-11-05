@@ -57,6 +57,66 @@ _SECRET_PATTERNS = [
      "secret literal (field initializer)"),
 ]
 
+# ---------- C# (regex fallback; the C#/.NET port is the AST authority) ----------
+#
+# Python has no Roslyn, so the Python implementation scans .cs with the same
+# regex philosophy as Go/Java. The C# port (dotnet/AiCV.Core) parses .cs with
+# a real Roslyn AST and is authoritative for the language; both sides map to
+# the same rule ids so agent pipelines get the same verdict from either.
+# The AST side may be MORE precise (comments/strings cannot trigger it, exact
+# row/col) — a documented superset, see docs/rules.md.
+
+# dynamic code execution: Roslyn scripting Eval, CodeDom compilation,
+# CompilerServices imports
+_CS_DANGEROUS_CALL = re.compile(
+    r"(?i)\b(CSharpScript\.(?:EvaluateAsync|RunAsync)"
+    r"|CompileAssemblyFromSource(?:Async)?"
+    r"|CSharpCodeProvider)\b")
+_CS_COMPILERSERVICES_USING = re.compile(r"(?i)^\s*using\s+[\w.]*CompilerServices\s*;")
+
+# Process.Start targeting a shell, or UseShellExecute = true
+_CS_PROCESS_START = re.compile(r"(?i)\bProcess\s*\.\s*Start\s*\(")
+_CS_SHELL_TARGET = re.compile(r"(?i)\b(cmd|powershell|pwsh|bash|sh|zsh)(\.exe)?\b")
+_CS_SHELL_FLAG = re.compile(r"(?i)(\"[^\"]*/(c|k)\b|\"[^\"]*-(c|k|enc)\b)")
+_CS_USE_SHELL_EXECUTE = re.compile(r"(?i)\bUseShellExecute\s*=\s*true\b")
+
+# interpolated SQL: $"SELECT ... {var}", string.Format("SELECT {0}", ...),
+# "SELECT ..." + var concatenation
+_CS_SQL_INTERP = re.compile(
+    r"(?i)\$\"[^\"]*\b(select|insert|update|delete|drop table|union\s+select)\b[^\"]*\{")
+_CS_SQL_FORMAT = re.compile(
+    r"(?i)\bstring\s*\.\s*format\s*\(\s*\"[^\"]*\b(select|insert|update|delete|drop table|union\s+select)\b")
+_CS_SQL_CONCAT = re.compile(
+    r"(?i)\"[^\"]*\b(select|insert|update|delete|drop table|union\s+select)\b[^\"]*\"\s*\+")
+
+
+def _check_cs_calls(text: str, rel: str) -> List[Dict]:
+    """dangerous_call / shell_exec for .cs at regex level (line-based)."""
+    out = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if _CS_DANGEROUS_CALL.search(line) or _CS_COMPILERSERVICES_USING.match(line):
+            out.append(_mk("dangerous_call", FINDING_SEV_ERROR, rel, lineno,
+                           "Dynamic code execution API (Roslyn Eval / CodeDom compile / "
+                           "CompilerServices) — ban in AI-generated code"))
+        if _CS_PROCESS_START.search(line) and (
+                _CS_SHELL_TARGET.search(line) or _CS_SHELL_FLAG.search(line)) \
+                or _CS_USE_SHELL_EXECUTE.search(line):
+            out.append(_mk("shell_exec", FINDING_SEV_ERROR, rel, lineno,
+                           "Process.Start targeting a shell — injection risk, "
+                           "use ProcessStartInfo with argument lists"))
+    return out
+
+
+def _check_cs_sql(text: str, rel: str) -> List[Dict]:
+    out = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if _CS_SQL_INTERP.search(line) or _CS_SQL_FORMAT.search(line) \
+                or _CS_SQL_CONCAT.search(line):
+            out.append(_mk("sql_string_format", FINDING_SEV_ERROR, rel, lineno,
+                           "SQL built via string formatting/interpolation — "
+                           "use parameterized queries"))
+    return out
+
 # Remote-code-execution "nuclear" patterns: download-and-execute one-liners
 # and shell=True escapes in subprocess calls.
 _REMOTE_EXEC_LINE = re.compile(
@@ -158,10 +218,11 @@ def check_remote_exec_lines(text: str, rel: str) -> List[Dict]:
     return out
 
 
-def check_hardcoded_secrets(text: str, rel: str) -> List[Dict]:
+def check_hardcoded_secrets(text: str, rel: str, skip_dummy: bool = True) -> List[Dict]:
     out = []
     for lineno, line in enumerate(text.splitlines(), 1):
-        if "example" in line.lower() or "dummy" in line.lower() or "xxx" in line.lower():
+        low = line.lower()
+        if "example" in low or "xxx" in low or (skip_dummy and "dummy" in low):
             continue
         for pat, label in _SECRET_PATTERNS:
             if pat.search(line):
@@ -244,8 +305,9 @@ def check_dead_imports(tree: ast.AST, rel: str) -> List[Dict]:
 
 
 # Inline suppression: `# aicv: ignore` (all rules on the line) or
-# `# aicv: ignore[rule1, rule2]` (only the listed rules).
-_SUPPRESS_RE = re.compile(r"#\s*aicv:\s*ignore(?:\[(?P<rules>[^\]]*)\])?")
+# `# aicv: ignore[rule1, rule2]` (only the listed rules). C-like languages
+# may also use the `// aicv: ignore` comment form.
+_SUPPRESS_RE = re.compile(r"(?://|#)\s*aicv:\s*ignore(?:\[(?P<rules>[^\]]*)\])?")
 
 SUPPRESS_ALL = "*"
 
@@ -437,18 +499,40 @@ def _check_text_language(path: Path, rel: str, enabled: Dict[str, bool]) -> List
     findings: List[Dict] = []
     text = path.read_text(encoding="utf-8", errors="replace")
     if enabled.get("hardcoded_secret", True):
-        for lineno, line in enumerate(text.splitlines(), 1):
-            low = line.lower()
-            if "example" in low or "xxx" in low:
-                continue
-            for pat, label in _SECRET_PATTERNS:
-                if pat.search(line):
-                    findings.append(_mk("hardcoded_secret", FINDING_SEV_ERROR, rel, lineno,
-                                        f"Possible {label} hardcoded in source"))
+        findings += check_hardcoded_secrets(text, rel, skip_dummy=False)
     if enabled.get("remote_exec", True):
         findings += check_remote_exec_lines(text, rel)
     if enabled.get("todo_fixme", True):
         findings += check_todo_fixme(text, rel)
+    return filter_suppressed(findings, text)
+
+
+CS_EXT = {".cs"}
+
+
+def check_cs_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
+    """Regex-level fallback scan for C# — Python has no Roslyn.
+
+    The C#/.NET port (dotnet/AiCV.Core) scans .cs with a real Roslyn AST and
+    is authoritative for the language (exact row/col, comment/string-proof).
+    This fallback keeps the same rule ids so agent pipelines get the same
+    verdict from either implementation; the AST side may be a documented
+    superset (see docs/rules.md).
+    """
+    findings: List[Dict] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if enabled.get("dangerous_call", True) or enabled.get("shell_exec", True) \
+            or enabled.get("sql_string_format", True):
+        findings += _check_cs_calls(text, rel)
+        findings += _check_cs_sql(text, rel)
+    if enabled.get("hardcoded_secret", True):
+        findings += check_hardcoded_secrets(text, rel, skip_dummy=False)
+    if enabled.get("remote_exec", True):
+        findings += check_remote_exec_lines(text, rel)
+    if enabled.get("todo_fixme", True):
+        findings += check_todo_fixme(text, rel)
+    if enabled.get("syntax_error", True):
+        findings += check_bracket_balance(text, rel)
     return filter_suppressed(findings, text)
 
 
