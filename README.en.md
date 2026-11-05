@@ -40,7 +40,10 @@ sits **before** human review and takes the routine part off its plate.
 | `ruff:*` | everything ruff finds, when installed (graceful fallback) |
 
 Languages: **Python** (AST + compile gate), **JS/TS, Go, Java** (regex
-pre-scan: secrets, remote-exec, TODO/FIXME, bracket balance).
+pre-scan: secrets, remote-exec, TODO/FIXME, bracket balance), **C#** — in
+the `aicv-dotnet` implementation, `.cs` files are scanned with a real
+Roslyn AST (exact row/col, parser diagnostics); the Python side uses a
+regex fallback with the same rule ids (details: `docs/rules.md`).
 
 ## Speed
 

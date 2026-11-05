@@ -46,6 +46,13 @@ git diff ──▶ changed_files() ──▶ per-file check chain ──▶ find
   GitHub code scanning.
 - **v0.3 — agent-loop API** ✅: `aicv check --json` (вердикт), `aicv verdict
   --summary` (marker-блок), inline-супресії `# aicv: ignore[rule]`, `aicv init`.
+- **v1.1 — C# AST (Roslyn, stage 2)** ✅: `aicv-dotnet` сканує `.cs`
+  справжнім AST (`Microsoft.CodeAnalysis.CSharp`) — dangerous API
+  (Roslyn-scripting Eval, CodeDom, CompilerServices), `Process.Start` з
+  shell-ціллю, інтерпольований SQL, secrets, TODO; синтаксис-гейт —
+  діагностики парсера Roslyn з точними row/col (`column` у JSON).
+  Python-реалізація лишає для `.cs` regex-fallback з тими самими id правил;
+  паритет-політика — AST ⊇ regex (документовано в `docs/rules.md`).
 - **v0.4 — JS/TS AST**: tree-sitter або esprima для справжнього парсингу JS/TS
   (eval/child_process/небезпечні патерни, не лише regex).
 - **v0.5 — PR-анотації**: comments на diff у PR через GitHub API.

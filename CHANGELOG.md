@@ -8,14 +8,33 @@
 ## [Unreleased]
 
 ### Додано
+- **C#-скан через Roslyn AST (stage 2)** — `aicv-dotnet` сканує `.cs`
+  справжнім AST (`Microsoft.CodeAnalysis.CSharp`, MIT): dangerous API
+  (Roslyn-scripting Eval `CSharpScript.EvaluateAsync/RunAsync`, CodeDom
+  `CompileAssemblyFromSource`, `using CompilerServices`/`Reflection.Emit`),
+  `Process.Start` із shell-ціллю та `UseShellExecute = true`, інтерпольований
+  SQL `$"SELECT ... {var}"` (+ `string.Format`, конкатенація), TODO/FIXME,
+  hardcoded secrets; синтаксис-гейт — справжні діагностики парсера Roslyn
+  з точними row/col (поле `column` у JSON — лише для AST-знахідок).
+  C#-порт є авторитетною реалізацією для `.cs`.
+- **`.cs` regex-fallback у Python-реалізації** — Python не має Roslyn, тому
+  `aicv.checks.check_cs_file` сканує `.cs` regex-рівнем з тими самими id
+  правил; паритет-політика: regex-знахідки — підмножина AST-знахідок
+  (документовано в `docs/rules.md`).
+- C#-фікстури (`tests/fixtures/*.cs`: dangerous / interpolated-sql /
+  secrets / clean / todo / syntax) + `tests/test_cs_scan.py`; паритет-тести
+  розширені `.cs`-корпусом (regex vs AST, superset-політика, `column`).
+- Форма suppression `// aicv: ignore` для C-подібних мов (поряд із `#`).
+- `docs/rules.md`: автогенерована таблиця «Мови та рівень аналізу»
+  (розширено `scripts/gen_rules.py`).
 - **C# .NET 10 порт (aicv-dotnet)** — друга реалізація aicv у `dotnet/`:
   бібліотека `AiCV.Core` (усі правила v1.0: secrets regex, dangerous/shell/
   remote-exec, SQL-format, TODO/FIXME, `# aicv: ignore` suppressions,
   bracket-balance syntax-гейт, `.aicv.toml` конфіг) + CLI `AiCV.Cli`
   (`check`/`report`/`ci`/`diff`/`verdict`/`init`/`baseline`, `--json`,
-  `--sarif`, `--annotate`), без зовнішніх залежностей. Публікація —
-  self-contained single-file `aicv.exe` (ReadyToRun; Native AOT потребує
-  MSVC-лінкера — задокументовано в `dotnet/README.md`).
+  `--sarif`, `--annotate`), без зовнішніх залежностей (до stage 2).
+  Публікація — self-contained single-file `aicv.exe` (ReadyToRun; Native AOT
+  потребує MSVC-лінкера — задокументовано в `dotnet/README.md`).
 - **Golden-паритет тести** `tests/test_dotnet_parity.py`: корпус
   bad/clean/suppression/todo проганяється і Python `aicv`, і C# exe;
   звіряються файли, exit-code, множина знахідок (file, line, rule) і
@@ -29,9 +48,10 @@
 - `INSTALL.md`: розділ «C#-версія (aicv-dotnet) — без Python».
 
 ### Змінено
-- README (UA+EN): розділ «Швидкодія»/«Speed» тепер порівнює обидві
-  реалізації; «Встановлення»/«Installation» — два варіанти (Python,
-  C# exe).
+- README (UA+EN): розділ «Мови» тепер описує `.cs`-скан (Roslyn AST у
+  `aicv-dotnet` — авторитетний; Python-side regex-fallback); розділ
+  «Швидкодія»/«Speed» порівнює обидві реалізації; «Встановлення»/
+  «Installation» — два варіанти (Python, C# exe).
 
 ## [1.0.0] — 2026-11-05
 

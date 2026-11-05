@@ -38,7 +38,10 @@ AI пише дедалі більше коду, але людина мусить
 | `ruff:*` | все, що знайде ruff, якщо він встановлений (graceful fallback) |
 
 Мови: **Python** (AST + py_compile), **JS/TS, Go, Java** (regex pre-scan:
-секрети, remote-exec, TODO/FIXME, баланс дужок).
+секрети, remote-exec, TODO/FIXME, баланс дужок), **C#** — у реалізації
+`aicv-dotnet` сканування `.cs` відбувається справжнім AST через Roslyn
+(точні row/col, діагностики парсера); Python-side для `.cs` — regex-fallback
+з тими самими id правил (деталі: `docs/rules.md`).
 
 ## Швидкодія
 
