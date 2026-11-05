@@ -13,6 +13,11 @@ build/
 dist/
 .aicv/
 
+# .NET (aicv-dotnet)
+dotnet/artifacts/
+dotnet/**/bin/
+dotnet/**/obj/
+
 # OS / editor
 .DS_Store
 Thumbs.db

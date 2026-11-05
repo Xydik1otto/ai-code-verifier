@@ -203,7 +203,7 @@ public static class Checks
     private static readonly Regex ShellExecCall =
         new(@"\b(os\.(?:system|popen)|subprocess\.(?:getoutput|getstatusoutput))\s*\(");
     private static readonly Regex SubprocessStringArg =
-        new(@"\bsubprocess\.(call|run|Popen|check_output|check_call)\s*\(\s*['""]");
+        new(@"\bsubprocess\.(call|run|Popen|check_output|check_call)\s*\(\s*['""][^'""]*['""]\s*[,)]");
     private static readonly Regex ShellTrue =
         new(@"\bsubprocess\.(call|run|Popen|check_output|check_call)\s*\([^)]*shell\s*=\s*True\b");
 
@@ -236,6 +236,11 @@ public static class Checks
             if (ShellTrue.IsMatch(line))
                 list.Add(Mk("remote_exec", Sev.Error, rel, lineno,
                     "subprocess(..., shell=True) — shell injection risk"));
+            // first argument is a plain string literal (Python checks the AST:
+            // args[0] must be a Constant str — the `[,)]` lookahead mirrors that)
+            if (SubprocessStringArg.IsMatch(line))
+                list.Add(Mk("shell_exec", Sev.Warn, rel, lineno,
+                    "subprocess called with a bare string (shell=False assumed) — prefer list argv"));
         }
         return list;
     }

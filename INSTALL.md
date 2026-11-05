@@ -6,6 +6,7 @@
 - [Windows](#windows)
 - [Linux](#linux)
 - [macOS](#macos)
+- [C#-версія (aicv-dotnet) — без Python](#c-версія-aicv-dotnet--без-python)
 - [Оновлення](#оновлення)
 - [Перевірка, що все працює](#перевірка-що-все-працює)
 - [Використання у своєму репозиторії](#використання-у-своєму-репозиторії)
@@ -61,6 +62,34 @@ git clone https://github.com/bigpi/ai-code-verifier
 cd ai-code-verifier
 python3 -m pip install --user -e .
 ```
+
+## C#-версія (aicv-dotnet) — без Python
+
+Для великих репозиторіїв швидша C#-реалізація: той самий aicv-контракт
+(команди, `--json`, `--sarif`, exit codes), але збирається у **один
+самодостатній exe**, який не потребує ані Python, ані .NET runtime.
+Рекомендована реалізація для CI та великих дифів.
+
+1. **Встановіть .NET SDK 10** (потрібен лише на етапі збірки):
+   <https://dotnet.microsoft.com/download/dotnet/10.0>.
+2. **Зберіть exe:**
+
+   ```powershell
+   git clone https://github.com/bigpi/ai-code-verifier
+   cd ai-code-verifier\dotnet
+   dotnet publish AiCV.Cli -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true -o artifacts\exe
+   ```
+
+3. **Перевірте:**
+
+   ```powershell
+   .\artifacts\exe\aicv.exe --version     # aicv 1.0.0
+   .\artifacts\exe\aicv.exe check
+   ```
+
+Готовий `aicv.exe` можна скопіювати куди завгодно — він працює сам.
+Нюанси (AOT потребує MSVC, відмінності lightweight-синтакс-гейту) —
+[dotnet/README.md](dotnet/README.md).
 
 ## Оновлення
 

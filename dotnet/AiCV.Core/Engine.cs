@@ -377,7 +377,14 @@ public static class Engine
             target,
             generated_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssK"),
             files = rels,
-            findings = findings.Select(f => new { f.Rule, f.Severity, f.File, f.Line, f.Message }).ToList(),
+            findings = findings.Select(f => new
+            {
+                rule = f.Rule,
+                severity = f.Severity,
+                file = f.File,
+                line = f.Line,
+                message = f.Message,
+            }).ToList(),
             counts = SeverityCounts(findings),
             exit_code = ExitCode(findings),
         };

@@ -302,7 +302,14 @@ internal static class Program
         var payload = new
         {
             generated_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssK"),
-            findings = findings.Select(f => new { f.Rule, f.Severity, f.File, f.Line, f.Message }).ToList(),
+            findings = findings.Select(f => new
+            {
+                rule = f.Rule,
+                severity = f.Severity,
+                file = f.File,
+                line = f.Line,
+                message = f.Message,
+            }).ToList(),
         };
         var p = Path.Combine(dir, "baseline.json");
         File.WriteAllText(p, JsonSerializer.Serialize(payload, JsonOpts), new UTF8Encoding(false));

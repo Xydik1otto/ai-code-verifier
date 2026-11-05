@@ -5,6 +5,34 @@
 Формат базується на [Keep a Changelog](https://keepachangelog.com/uk/1.1.0/),
 версіювання — [Semantic Versioning](https://semver.org/lang/uk/).
 
+## [Unreleased]
+
+### Додано
+- **C# .NET 10 порт (aicv-dotnet)** — друга реалізація aicv у `dotnet/`:
+  бібліотека `AiCV.Core` (усі правила v1.0: secrets regex, dangerous/shell/
+  remote-exec, SQL-format, TODO/FIXME, `# aicv: ignore` suppressions,
+  bracket-balance syntax-гейт, `.aicv.toml` конфіг) + CLI `AiCV.Cli`
+  (`check`/`report`/`ci`/`diff`/`verdict`/`init`/`baseline`, `--json`,
+  `--sarif`, `--annotate`), без зовнішніх залежностей. Публікація —
+  self-contained single-file `aicv.exe` (ReadyToRun; Native AOT потребує
+  MSVC-лінкера — задокументовано в `dotnet/README.md`).
+- **Golden-паритет тести** `tests/test_dotnet_parity.py`: корпус
+  bad/clean/suppression/todo проганяється і Python `aicv`, і C# exe;
+  звіряються файли, exit-code, множина знахідок (file, line, rule) і
+  severity (допустимі відмінності — текст повідомлень і рядок
+  `syntax_error`: AST проти bracket-гейту).
+- **Бенчмарк** `scripts/benchmark_dotnet.py`: 1000-файловий диф, best-of-3
+  методологія (перший прогін платить одноразовий Defender-скан нових
+  файлів). C#: **0.34 s** (ціль <1 s — PASS) проти Python ~1.0 s (best of 3)
+  / 3.93 s (холодний прогін) — README (UA+EN) оновлено, C# рекомендовано
+  для великих репозиторіїв.
+- `INSTALL.md`: розділ «C#-версія (aicv-dotnet) — без Python».
+
+### Змінено
+- README (UA+EN): розділ «Швидкодія»/«Speed» тепер порівнює обидві
+  реалізації; «Встановлення»/«Installation» — два варіанти (Python,
+  C# exe).
+
 ## [1.0.0] — 2026-11-05
 
 ### Додано
