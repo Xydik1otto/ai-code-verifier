@@ -12,7 +12,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 PROJECT_ROOT = Path(__file__).parent.parent
 
 from aicv.checks import check_python_file
-from aicv.engine import exit_code, load_config, run_checks, severity_counts
+from aicv.engine import exit_code, load_config, render_sarif, run_checks, severity_counts
 from aicv.cli import main
 
 DEFAULT_RULES = {rid: spec["default"] for rid, spec in {
@@ -155,6 +155,54 @@ def test_py_compile_syntax_gate_toggleable():
     disabled = dict(DEFAULT_RULES, syntax_error=False)
     fs = check("syntax_error.py", disabled)
     assert findings_by_rule(fs, "syntax_error") == []
+
+
+# ---------- v0.3: SARIF output ----------
+
+def _sample_findings():
+    return [
+        {"rule": "dangerous_call", "severity": "error", "file": "a\\b.py", "line": 7,
+         "message": "Use of 'eval()'"},
+        {"rule": "ruff:F401", "severity": "warning", "file": "a/b.py", "line": 2,
+         "message": "unused import"},
+    ]
+
+
+def test_sarif_structure():
+    doc = render_sarif(_sample_findings())
+    assert doc["version"] == "2.1.0"
+    assert doc["$schema"].endswith(".json")
+    run = doc["runs"][0]
+    assert run["tool"]["driver"]["name"] == "aicv"
+    assert {r["id"] for r in run["tool"]["driver"]["rules"]} >= {"dangerous_call"}
+    assert len(run["results"]) == 2
+    by_rule = {r["ruleId"]: r for r in run["results"]}
+    res = by_rule["dangerous_call"]
+    assert set(res) == {"ruleId", "level", "message", "locations"}
+    assert res["level"] == "error"
+    assert res["message"]["text"] == "Use of 'eval()'"
+    assert by_rule["ruff:F401"]["level"] == "warning"
+
+
+def test_sarif_locations_and_ruff_passthrough():
+    doc = render_sarif(_sample_findings())
+    by_rule = {r["ruleId"]: r for r in doc["runs"][0]["results"]}
+    loc = by_rule["dangerous_call"]["locations"][0]["physicalLocation"]
+    assert loc["artifactLocation"]["uri"] == "a/b.py"  # forward slashes
+    assert loc["region"]["startLine"] == 7
+    assert "ruff:" in "".join(by_rule), "ruff rule ids must be preserved"
+
+
+def test_cli_sarif_file_written(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["check", "--no-ruff", "--sarif"])
+    assert rc == 1
+    sarif_path = git_repo / ".aicv" / "latest.sarif"
+    assert sarif_path.is_file()
+    doc = json.loads(sarif_path.read_text(encoding="utf-8"))
+    results = doc["runs"][0]["results"]
+    assert len(results) >= 4
+    assert all(r["level"] in {"error", "warning", "note"} for r in results)
 
 
 # ---------- CLI end-to-end in a scratch git repo ----------

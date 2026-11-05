@@ -116,6 +116,45 @@ def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
     return findings
 
 
+SARIF_VERSION = "2.1.0"
+SARIF_SCHEMA = ("https://json.schemastore.org/sarif-2.1.0.json")
+
+_SEV_TO_SARIF = {"error": "error", "warning": "warning"}
+
+
+def render_sarif(findings: List[Dict]) -> Dict:
+    """SARIF 2.1.0 document for GitHub code scanning upload."""
+    rules = [
+        {"id": rid, "shortDescription": {"text": spec.get("name", rid)}}
+        for rid, spec in sorted(RULES.items())
+    ]
+    rule_ids = {r["id"] for r in rules}
+    results = []
+    for f in sorted(findings, key=lambda x: (x["file"], x["line"], x["rule"])):
+        results.append({
+            "ruleId": f["rule"] if f["rule"] in rule_ids or f["rule"].startswith("ruff:")
+                      else f"ruff:{f['rule']}",
+            "level": _SEV_TO_SARIF.get(f["severity"], "note"),
+            "message": {"text": f["message"]},
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": {"uri": f["file"].replace("\\", "/")},
+                    "region": {"startLine": int(f["line"])},
+                }
+            }],
+        })
+    return {
+        "$schema": SARIF_SCHEMA,
+        "version": SARIF_VERSION,
+        "runs": [{
+            "tool": {"driver": {"name": "aicv", "informationUri":
+                                "https://github.com/bigpi/ai-code-verifier",
+                                "rules": rules}},
+            "results": results,
+        }],
+    }
+
+
 def severity_counts(findings: List[Dict]) -> Dict[str, int]:
     counts = {"error": 0, "warning": 0}
     for f in findings:

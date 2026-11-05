@@ -17,13 +17,13 @@ FINDING_SEV_WARN = "warning"
 
 # Rule id -> {"name":..., "default": True/False} for .aicv.toml toggling.
 RULES: Dict[str, Dict] = {
-    "dangerous_call": {"default": True},
-    "shell_exec": {"default": True},
-    "remote_exec": {"default": True},
-    "hardcoded_secret": {"default": True},
-    "sql_string_format": {"default": True},
-    "dead_import": {"default": False},  # noisy -> opt-in by default
-    "syntax_error": {"default": True},
+    "dangerous_call": {"name": "Dynamic code execution (eval/exec/compile)", "default": True},
+    "shell_exec": {"name": "Shell execution from strings", "default": True},
+    "remote_exec": {"name": "Remote/shell code execution patterns", "default": True},
+    "hardcoded_secret": {"name": "Hardcoded secrets in source", "default": True},
+    "sql_string_format": {"name": "SQL built via string formatting", "default": True},
+    "dead_import": {"name": "Imported but never used", "default": False},  # noisy -> opt-in
+    "syntax_error": {"name": "File does not parse/compile", "default": True},
 }
 
 _SECRET_PATTERNS = [

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import __version__
 from .engine import (build_verdict, changed_files, exit_code, load_config,
-                     run_checks, save_report)
+                     render_sarif, run_checks, save_report)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -50,6 +50,13 @@ def _scan(args, root: Path, files, target: str) -> int:
         f"report: {md}",
     ]
     rc = exit_code(findings)
+    if getattr(args, "sarif", False):
+        import json as _j
+        sarif_path = root / ".aicv" / "latest.sarif"
+        sarif_path.write_text(
+            _j.dumps(render_sarif(findings), indent=2, ensure_ascii=False),
+            encoding="utf-8")
+        human.append(f"sarif: {sarif_path}")
     if getattr(args, "json", False):
         # machine-readable verdict for agent-loop integration: stdout carries
         # only the JSON; human-readable output goes to stderr.
@@ -68,6 +75,8 @@ def _cmd_report(args, root: Path) -> int:
     d = root / ".aicv"
     if args.json:
         p = d / "latest.json"
+    elif getattr(args, "sarif", False):
+        p = d / "latest.sarif"
     else:
         p = d / "latest.md"
     if not p.is_file():
@@ -89,15 +98,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_check.add_argument("--json", action="store_true",
                          help="print a machine-readable verdict JSON to stdout "
                               "(agent-loop integration)")
+    p_check.add_argument("--sarif", action="store_true",
+                         help="also write a SARIF 2.1.0 report (.aicv/latest.sarif) "
+                              "for GitHub code scanning")
     p_check.set_defaults(func=_cmd_check)
 
     p_rep = sub.add_parser("report", help="print the latest verification report")
     p_rep.add_argument("--json", action="store_true", help="print JSON instead of markdown")
+    p_rep.add_argument("--sarif", action="store_true", help="print the SARIF report")
     p_rep.set_defaults(func=_cmd_report)
 
     p_ci = sub.add_parser("ci", help="CI mode: diff vs GITHUB_BASE_REF")
     p_ci.add_argument("--no-ruff", action="store_true")
     p_ci.add_argument("--json", action="store_true")
+    p_ci.add_argument("--sarif", action="store_true")
     p_ci.set_defaults(func=_cmd_ci)
     return ap
 
