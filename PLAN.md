@@ -38,14 +38,19 @@ git diff ──▶ changed_files() ──▶ per-file check chain ──▶ find
 
 ## 4. Roadmap
 
-- **v0.2 — pre-commit**: hook `aicv pre-commit`, інтеграція з `pre-commit` фреймворком.
-- **v0.3 — JS/TS AST**: tree-sitter або esprima для справжнього парсингу JS/TS
+- **v0.2 — pre-commit** ✅: `.pre-commit-hooks.yaml` + README-інструкція.
+- **v0.2/0.3 — нові правила** ✅: `remote_exec` (curl|sh, bash -c,
+  powershell -enc, shell=True), secret-патерни AKIA / xox* / Bearer;
+  py_compile-гейт синтаксису ✅.
+- **v0.3 — SARIF** ✅: `aicv check --sarif` → `.aicv/latest.sarif` для
+  GitHub code scanning.
+- **v0.3 — agent-loop API** ✅: `aicv check --json` (вердикт), `aicv verdict
+  --summary` (marker-блок), inline-супресії `# aicv: ignore[rule]`, `aicv init`.
+- **v0.4 — JS/TS AST**: tree-sitter або esprima для справжнього парсингу JS/TS
   (eval/child_process/небезпечні патерни, не лише regex).
-- **v0.4 — agent-loop API**: `aicv check --json` як вердикт для автономних
-  агентів; самовиправлення: агент читає знахідки і перегенеровує код.
-- **v0.5 — SARIF output** для GitHub code scanning; анотації на diff у PR.
-- **v0.6 — baseline/suppressions**: `# aicv: ignore[rule]`, baseline-файл для
-  легасі-кодy, щоб не шуміти на старих файлах.
+- **v0.5 — PR-анотації**: comments на diff у PR через GitHub API.
+- **v0.6 — baseline**: baseline-файл для легасі-коду, щоб не шуміти на старих
+  файлах (suppressions per-line вже є).
 - **v1.0 — team mode (SaaS)**: дашборд по PR, тренд «AI-code trust score»,
   політики на рівні org, інтеграції Slack/GitHub comments.
 

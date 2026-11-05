@@ -30,7 +30,8 @@ AI пише дедалі більше коду, але людина мусить
 | `syntax_error` | файл взагалі не парситься |
 | `dangerous_call` | `eval`, `exec`, `compile`, `__import__` |
 | `shell_exec` | `os.system`, `os.popen`, `subprocess` зі строковим аргументом |
-| `hardcoded_secret` | API-ключі, токени, паролі регулярками |
+| `remote_exec` | `curl… \| sh`, `bash -c`, `powershell -enc`, `subprocess(shell=True)` |
+| `hardcoded_secret` | API-ключі, токени (Slack `xox*`, Bearer, AWS `AKIA*`, GitHub, Stripe), паролі |
 | `sql_string_format` | SQL через f-string / `.format` / `%` |
 | `dead_import` | імпорти, які ніде не використовуються (opt-in) |
 | `ruff:*` | все, що знайде ruff, якщо він встановлений (graceful fallback) |
@@ -52,8 +53,13 @@ Zero runtime dependencies — працює навіть у мінімально�
 aicv check                # git diff HEAD (робоче дерево)
 aicv check --staged       # лише staged-зміни
 aicv check --json         # machine-readable вердикт для agent-loop
+aicv check --sarif        # SARIF 2.1.0 -> .aicv/latest.sarif (GitHub code scanning)
 aicv report               # показати останній звіт
 aicv report --json
+aicv report --sarif
+aicv verdict              # marker-вердикт для агентів (без запису звітів)
+aicv verdict --summary    # один marker-рядок
+aicv init                 # згенерувати .aicv.toml
 aicv ci                   # CI: diff від GITHUB_BASE_REF
 ```
 
@@ -141,9 +147,22 @@ repos:
 - `aicv/engine.py` — git diff → файли → перевірки → markdown/JSON звіт.
 - `aicv/cli.py` — `check` / `report` / `ci`.
 
+## GitHub code scanning (SARIF)
+
+`aicv check --sarif` пише `.aicv/latest.sarif` (SARIF 2.1.0). Завантажте його
+у GitHub code scanning у CI-джобі:
+
+```yaml
+      - run: aicv ci --sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .aicv/latest.sarif
+```
+
 ## Статус
 
-**v0.1.0-alpha**: Python-файли (AST) + JS/TS (regex-секрети), git-інтеграція,
-звіти (групування по файлах + severity), inline-супресії, machine-readable
-вердикт (`--json`), pre-commit hook, конфіг, GitHub Action приклад, pytest-набір.
+**v0.3.0**: Python-файли (AST + py_compile) + JS/TS (regex-секрети),
+git-інтеграція, звіти (групування по файлах + severity), inline-супресії,
+machine-readable вердикт (`--json`), SARIF 2.1.0, `aicv init`, `aicv verdict`,
+pre-commit hook, конфіг, GitHub Action приклад, pytest-набір.
 Дорожня карта — у [PLAN.md](PLAN.md).
