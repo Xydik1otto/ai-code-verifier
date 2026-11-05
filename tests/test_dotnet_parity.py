@@ -115,6 +115,13 @@ BAD_JAVA = '''class Handler {
 }
 '''
 
+# .cs corpus: the C# exe scans it with the real Roslyn AST (authoritative),
+# Python aicv with its regex fallback — same rule ids, same fixtures
+# (tests/fixtures/*.cs) as the unit tests.
+BAD_CS = (PROJECT_ROOT / "tests" / "fixtures" / "bad_code.cs").read_text(encoding="utf-8")
+CLEAN_CS = (PROJECT_ROOT / "tests" / "fixtures" / "clean_code.cs").read_text(encoding="utf-8")
+SYNTAX_CS = (PROJECT_ROOT / "tests" / "fixtures" / "syntax_error.cs").read_text(encoding="utf-8")
+
 
 # ---------- fixtures / helpers ----------
 
@@ -167,6 +174,9 @@ CORPUS = {
     "util.go": BAD_GO,
     "broken.go": BROKEN_GO,
     "Handler.java": BAD_JAVA,
+    "Handler.cs": BAD_CS,
+    "Repo.cs": CLEAN_CS,
+    "Broken.cs": SYNTAX_CS,
     "README.md": "# docs are never scanned\n",
 }
 
@@ -207,7 +217,15 @@ def _finding_keys(findings: list, line_flexible_rules: set) -> set:
 
 
 LINE_FLEXIBLE = {"syntax_error"}  # AST line vs bracket-gate line may differ
-# Every other finding must match on (file, rule, line) exactly.
+# Every non-.cs finding must match on (file, rule, line) exactly. For .cs the
+# C# side is the authoritative Roslyn AST, the Python side a regex fallback:
+# comparison happens at (file, rule) granularity with the AST allowed to be a
+# superset (documented in docs/rules.md). AST findings on this corpus carry
+# the same lines as the regex fallback anyway (column is AST-only).
+
+
+def _is_cs(e) -> bool:
+    return e["file"].endswith(".cs")
 
 
 def test_parity_same_files_checked(parity_repo):
@@ -224,28 +242,64 @@ def test_parity_same_exit_code(parity_repo):
 
 
 def test_parity_no_divergent_findings(parity_repo):
-    """Every (file, rule, line) finding present on one side must be present
-    on the other (syntax_error compared file+rule only). Compared over ALL
-    findings from .aicv/latest.json (warnings included)."""
+    """Non-.cs: every (file, rule, line) finding present on one side must be
+    present on the other (syntax_error compared file+rule only).
+    .cs: (file, rule) granularity; the Python regex fallback must never find
+    something the Roslyn AST misses (AST superset allowed and documented)."""
     _, py_f = run_python_cli(parity_repo)
     _, dn_f = run_dotnet_cli(dotnet_exe(), parity_repo)
-    py_keys = _finding_keys(py_f, LINE_FLEXIBLE)
-    dn_keys = _finding_keys(dn_f, LINE_FLEXIBLE)
+    strict = lambda fs: {(e["file"], e["rule"], e["line"]) for e in fs
+                         if e["rule"] not in LINE_FLEXIBLE and not _is_cs(e)}
+    py_keys, dn_keys = strict(py_f), strict(dn_f)
     only_py = sorted(py_keys - dn_keys)
     only_dn = sorted(dn_keys - py_keys)
     assert not only_py, f"Python-only findings (dotnet missed them): {only_py}"
     assert not only_dn, f"dotnet-only findings (Python missed them): {only_dn}"
+    cs_py = {(e["file"], e["rule"]) for e in py_f if _is_cs(e)}
+    cs_dn = {(e["file"], e["rule"]) for e in dn_f if _is_cs(e)}
+    assert not (cs_py - cs_dn), f".cs findings Python-only (AST missed them): {cs_py - cs_dn}"
 
 
 def test_parity_same_rule_multiset(parity_repo):
-    """Same number of findings per (file, rule) on both sides."""
+    """Same number of findings per (file, rule) on both sides (non-.cs rules;
+    .cs counts may differ — the AST is precise where the regex over/under-matches)."""
     from collections import Counter
 
     _, py_f = run_python_cli(parity_repo)
     _, dn_f = run_dotnet_cli(dotnet_exe(), parity_repo)
-    multiset = lambda fs: Counter((e["file"], e["rule"]) for e in fs)
+    multiset = lambda fs: Counter((e["file"], e["rule"]) for e in fs if not _is_cs(e))
     assert multiset(py_f) == multiset(dn_f), (
         f"python={dict(multiset(py_f))} dotnet={dict(multiset(dn_f))}")
+
+
+def test_parity_cs_ast_superset(parity_repo):
+    """For .cs, the Roslyn AST side must catch at least everything the Python
+    regex fallback finds, per (file, rule) — and severities must agree where
+    both sides fire."""
+    from collections import Counter
+
+    _, py_f = run_python_cli(parity_repo)
+    _, dn_f = run_dotnet_cli(dotnet_exe(), parity_repo)
+    py_c = Counter((e["file"], e["rule"]) for e in py_f if _is_cs(e))
+    dn_c = Counter((e["file"], e["rule"]) for e in dn_f if _is_cs(e))
+    lost = {k: py_c[k] for k in py_c if dn_c.get(k, 0) < py_c[k]}
+    assert not lost, f".cs findings the AST side missed: {lost}"
+    sev_py = {(e["file"], e["rule"]): e["severity"] for e in py_f if _is_cs(e)}
+    sev_dn = {(e["file"], e["rule"]): e["severity"] for e in dn_f if _is_cs(e)}
+    assert sev_py.items() <= sev_dn.items(), ".cs severity mismatch"
+
+
+def test_parity_cs_ast_exercises_rules(parity_repo):
+    """The .cs corpus must exercise the security rules on the AST side and
+    carry exact row/col columns for AST-derived findings."""
+    _, dn_f = run_dotnet_cli(dotnet_exe(), parity_repo)
+    cs = [e for e in dn_f if _is_cs(e)]
+    fired = {e["rule"] for e in cs}
+    assert {"shell_exec", "dangerous_call", "sql_string_format",
+            "hardcoded_secret", "todo_fixme", "syntax_error"} <= fired, \
+        f".cs corpus does not cover: {fired}"
+    with_col = [e for e in cs if isinstance(e.get("column"), int) and e["column"] >= 1]
+    assert with_col, "AST findings must carry an exact column"
 
 
 def test_parity_expected_rules_fire(parity_repo):
@@ -281,22 +335,29 @@ def test_parity_suppression_respected(parity_repo):
 
 
 def test_parity_severities_match(parity_repo):
-    """Per (file, line, rule): same severity on both sides."""
+    """Per (file, line, rule): same severity on both sides (non-.cs; .cs
+    severities are compared per (file, rule) in test_parity_cs_ast_superset)."""
     _, py_f = run_python_cli(parity_repo)
     _, dn_f = run_dotnet_cli(dotnet_exe(), parity_repo)
     def sev_map(fs):
         return {(e["file"], e["line"], e["rule"]): e["severity"]
-                for e in fs if e["rule"] not in LINE_FLEXIBLE}
+                for e in fs if e["rule"] not in LINE_FLEXIBLE and not _is_cs(e)}
     assert sev_map(py_f) == sev_map(dn_f)
 
 
 def test_parity_verdict_schema(parity_repo):
-    """The C# verdict JSON must be structurally identical to the Python one."""
+    """The C# verdict JSON must be structurally identical to the Python one
+    (plus the AST-only optional `column` field)."""
     py_v, _ = run_python_cli(parity_repo)
     dn_v, _ = run_dotnet_cli(dotnet_exe(), parity_repo)
     assert sorted(py_v.keys()) == sorted(dn_v.keys()) == ["errors", "exit_code", "files_checked"]
-    for e in dn_v["errors"]:
+    for e in py_v["errors"]:
         assert sorted(e.keys()) == ["file", "line", "message", "rule"]
+    for e in dn_v["errors"]:
+        assert sorted(e.keys()) in (["file", "line", "message", "rule"],
+                                    ["column", "file", "line", "message", "rule"])
+        if "column" in e:
+            assert isinstance(e["column"], int) and e["column"] >= 1
     assert isinstance(dn_v["files_checked"], int)
     assert dn_v["exit_code"] in (0, 1)
 
