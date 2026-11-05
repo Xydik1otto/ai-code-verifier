@@ -205,6 +205,37 @@ def test_cli_sarif_file_written(git_repo, capsys):
     assert all(r["level"] in {"error", "warning", "note"} for r in results)
 
 
+# ---------- v0.3: aicv init ----------
+
+def test_init_generates_valid_config(git_repo, capsys):
+    rc = main(["init"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "wrote" in out
+    cfg = git_repo / ".aicv.toml"
+    assert cfg.is_file()
+    import tomllib
+    data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    rules = data["rules"]
+    assert rules["remote_exec"] is True
+    assert rules["dead_import"] is False
+    # generated config must be loadable by the engine
+    loaded = load_config(git_repo)
+    assert loaded == rules
+
+
+def test_init_refuses_overwrite(git_repo, capsys):
+    main(["init"])
+    capsys.readouterr()
+    (git_repo / ".aicv.toml").write_text("[rules]\ndead_import = true\n")
+    rc = main(["init"])
+    out = capsys.readouterr().out
+    assert rc == 2 and "--force" in out
+    assert "dead_import = true" in (git_repo / ".aicv.toml").read_text(encoding="utf-8")
+    rc2 = main(["init", "--force"])
+    assert rc2 == 0
+    assert "dead_import = false" in (git_repo / ".aicv.toml").read_text(encoding="utf-8")
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):
