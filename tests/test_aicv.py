@@ -135,6 +135,28 @@ def test_remote_exec_rule_toggleable():
     assert findings_by_rule(fs, "hardcoded_secret")  # other rules unaffected
 
 
+# ---------- v0.2: py_compile syntax gate ----------
+
+def test_py_compile_clean_file_no_finding():
+    fs = check("clean_code.py")
+    assert findings_by_rule(fs, "syntax_error") == []
+
+
+def test_py_compile_syntax_error_message():
+    from aicv.checks import check_py_compile
+    fs = check_py_compile(FIXTURES / "syntax_error.py", "syntax_error.py")
+    assert len(fs) == 1
+    assert fs[0]["rule"] == "syntax_error"
+    assert "py_compile" in fs[0]["message"]
+    assert fs[0]["line"] >= 1, "py_compile error must carry a line number"
+
+
+def test_py_compile_syntax_gate_toggleable():
+    disabled = dict(DEFAULT_RULES, syntax_error=False)
+    fs = check("syntax_error.py", disabled)
+    assert findings_by_rule(fs, "syntax_error") == []
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):

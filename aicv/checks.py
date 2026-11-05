@@ -253,6 +253,35 @@ def _mk(rule, severity, file, lineno, message):
     return {"rule": rule, "severity": severity, "file": file, "line": lineno, "message": message}
 
 
+def check_py_compile(path: Path, rel: str) -> List[Dict]:
+    """Bytecode-compile the file with py_compile (stdlib) — an independent
+    syntax gate for files in the diff, with file/line diagnostics."""
+    import os
+    import py_compile
+    import tempfile
+    handle, cfile = tempfile.mkstemp(suffix=".pyc", prefix="aicv-")
+    os.close(handle)
+    try:
+        py_compile.compile(str(path), cfile=cfile, doraise=True)
+        return []
+    except py_compile.PyCompileError as e:
+        # PyCompileError.msg embeds a mini-traceback: 'File "...", line N ...'
+        m = re.search(r"(?m)^\s*File \"[^\"]+\", line (\d+)", e.msg or "")
+        lineno = int(m.group(1)) if m else 0
+        # compact message: last non-empty line of the traceback text
+        detail = [ln for ln in (e.msg or "").strip().splitlines() if ln.strip()]
+        tail = detail[-1].strip() if detail else "compilation failed"
+        return [_mk("syntax_error", FINDING_SEV_ERROR, rel, lineno,
+                    f"py_compile: {tail}")]
+    except OSError:
+        return []  # unreadable file — never block the scan on tooling failure
+    finally:
+        try:
+            os.remove(cfile)
+        except OSError:
+            pass
+
+
 def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
     """Full check chain for one Python file."""
     findings: List[Dict] = []
@@ -263,7 +292,9 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
         if enabled.get("syntax_error", True):
             findings.append(_mk("syntax_error", FINDING_SEV_ERROR, rel, e.lineno or 0,
                                 f"SyntaxError: {e.msg}"))
-        return findings
+        return filter_suppressed(findings, text)
+    if enabled.get("syntax_error", True):
+        findings += check_py_compile(path, rel)
     if enabled.get("dangerous_call", True) or enabled.get("shell_exec", True) \
             or enabled.get("sql_string_format", True):
         findings += check_dangerous_calls(tree, rel)
