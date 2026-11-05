@@ -1,0 +1,12 @@
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.GeneratedMSBuildEditorConfig.editorconfig
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.AssemblyInfoInputs.cache
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.AssemblyInfo.cs
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.csproj.CoreCompileInputs.cache
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.sourcelink.json
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\bin\Release\net10.0\AiCV.Core.deps.json
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\bin\Release\net10.0\AiCV.Core.dll
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\bin\Release\net10.0\AiCV.Core.pdb
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.dll
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\refint\AiCV.Core.dll
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\AiCV.Core.pdb
+G:\Projects\ai-code-verifier\dotnet\AiCV.Core\obj\Release\net10.0\ref\AiCV.Core.dll
