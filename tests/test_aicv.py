@@ -100,6 +100,41 @@ def test_config_disables_rule(tmp_path):
     assert findings_by_rule(findings, "hardcoded_secret") == []
 
 
+# ---------- v0.2: new secret rules + remote-exec patterns ----------
+
+def test_new_secret_patterns_detected():
+    fs = check("exec_patterns.py")
+    secrets = findings_by_rule(fs, "hardcoded_secret")
+    labels = " ".join(f["message"] for f in secrets)
+    assert "Slack token" in labels, secrets
+    assert "Bearer token" in labels, secrets
+    assert "AWS access key id" in labels, secrets
+
+
+def test_remote_exec_curl_pipe_sh():
+    fs = check("exec_patterns.py")
+    remote = findings_by_rule(fs, "remote_exec")
+    assert any(f["line"] == 13 for f in remote), remote  # curl | sh line
+
+
+def test_subprocess_shell_true_flagged():
+    fs = check("exec_patterns.py")
+    remote = findings_by_rule(fs, "remote_exec")
+    assert any("shell=True" in f["message"] for f in remote), remote
+
+
+def test_remote_exec_clean_code_not_flagged():
+    fs = check("clean_code.py")
+    assert findings_by_rule(fs, "remote_exec") == []
+
+
+def test_remote_exec_rule_toggleable():
+    disabled = dict(DEFAULT_RULES, remote_exec=False)
+    fs = check("exec_patterns.py", disabled)
+    assert findings_by_rule(fs, "remote_exec") == []
+    assert findings_by_rule(fs, "hardcoded_secret")  # other rules unaffected
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):

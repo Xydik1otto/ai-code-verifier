@@ -3,6 +3,7 @@
 [rules]
 dangerous_call = true      # eval / exec / compile / __import__
 shell_exec = true          # os.system, os.popen, subprocess string calls
+remote_exec = true         # curl|sh, bash -c, powershell -enc, subprocess shell=True
 hardcoded_secret = true    # api keys, tokens, passwords in source
 sql_string_format = true   # SQL built via f-string / .format / %
 dead_import = false        # noisy; enable per-repo if wanted

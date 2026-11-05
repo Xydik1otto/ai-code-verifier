@@ -19,6 +19,7 @@ FINDING_SEV_WARN = "warning"
 RULES: Dict[str, Dict] = {
     "dangerous_call": {"default": True},
     "shell_exec": {"default": True},
+    "remote_exec": {"default": True},
     "hardcoded_secret": {"default": True},
     "sql_string_format": {"default": True},
     "dead_import": {"default": False},  # noisy -> opt-in by default
@@ -28,11 +29,22 @@ RULES: Dict[str, Dict] = {
 _SECRET_PATTERNS = [
     (re.compile(r"(?i)\b(api[_-]?key|apikey)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]"), "API key literal"),
     (re.compile(r"(?i)\b(secret[_-]?key|auth[_-]?token|access[_-]?token)\s*[:=]\s*['\"][^'\"]{12,}['\"]"), "secret/token literal"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS access key id"),
     (re.compile(r"(?i)\baws_access_key_id\s*[:=]\s*['\"]AKIA[0-9A-Z]{16}['\"]"), "AWS access key"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"), "Slack token"),
+    (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9_\-\.=]{20,}\b"), "Bearer token"),
     (re.compile(r"(?i)\b(password|passwd)\s*[:=]\s*['\"][^'\"]{8,}['\"]"), "password literal"),
     (re.compile(r"\b(sk|pk)-[A-Za-z0-9]{20,}\b"), "Stripe-style key"),
     (re.compile(r"\bghp_[A-Za-z0-9]{30,}\b"), "GitHub token"),
 ]
+
+# Remote-code-execution "nuclear" patterns: download-and-execute one-liners
+# and shell=True escapes in subprocess calls.
+_REMOTE_EXEC_LINE = re.compile(
+    r"(?i)\b(curl|wget)\b[^#\n]*\|\s*(sudo\s+)?(ba|z|da|k)?sh\b"
+    r"|\bbash\s+-c\b|\bsh\s+-c\b|\bpowershell(\.exe)?\s+(-enc|-EncodedCommand|-[iI]nputFormat\s+None)"
+    r"|\bbase64\s+-d\b|\beval\s*\(\s*\$\(|\bexec\s*\(\s*__import__"
+)
 
 # f-strings / .format / % / + concatenation in a context that looks like SQL
 _SQL_TOKEN = re.compile(r"(?i)\b(select|insert|update|delete|drop table|union\s+select)\b")
@@ -95,6 +107,35 @@ def check_dangerous_calls(tree: ast.AST, rel: str) -> List[Dict]:
             if args and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str):
                 out.append(_mk("shell_exec", FINDING_SEV_WARN, rel, _f_lineno(node),
                                "subprocess called with a bare string (shell=False assumed) — prefer list argv"))
+    return out
+
+
+def check_shell_true(tree: ast.AST, rel: str) -> List[Dict]:
+    """subprocess.*(..., shell=True) — shell injection risk (remote_exec rule)."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr not in _INNER_SHELL_FUNCS:
+            continue
+        base = node.func.value
+        if isinstance(base, ast.Name) and base.id == "subprocess":
+            for kw in node.keywords:
+                if kw.arg == "shell" and isinstance(kw.value, ast.Constant) \
+                        and kw.value.value is True:
+                    out.append(_mk("remote_exec", FINDING_SEV_ERROR, rel, _f_lineno(node),
+                                   "subprocess(..., shell=True) — shell injection risk"))
+    return out
+
+
+def check_remote_exec_lines(text: str, rel: str) -> List[Dict]:
+    """Download-and-execute / shell-escape one-liners (line-level, py + js/ts)."""
+    out = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if _REMOTE_EXEC_LINE.search(line):
+            out.append(_mk("remote_exec", FINDING_SEV_ERROR, rel, lineno,
+                           "Download-and-execute / shell-escape pattern — remote code "
+                           "execution risk"))
     return out
 
 
@@ -227,6 +268,9 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
             or enabled.get("sql_string_format", True):
         findings += check_dangerous_calls(tree, rel)
         findings += check_sql_string_format(tree, rel)
+    if enabled.get("remote_exec", True):
+        findings += check_remote_exec_lines(text, rel)
+        findings += check_shell_true(tree, rel)
     if enabled.get("hardcoded_secret", True):
         findings += check_hardcoded_secrets(text, rel)
     if enabled.get("dead_import", False):
@@ -237,16 +281,17 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
 def check_js_ts_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
     """Regex-level checks for JS/TS (no full parser in MVP)."""
     findings: List[Dict] = []
-    if not enabled.get("hardcoded_secret", True):
-        return findings
     text = path.read_text(encoding="utf-8", errors="replace")
-    for lineno, line in enumerate(text.splitlines(), 1):
-        if "example" in line.lower() or "xxx" in line.lower():
-            continue
-        for pat, label in _SECRET_PATTERNS:
-            if pat.search(line):
-                findings.append(_mk("hardcoded_secret", FINDING_SEV_ERROR, rel, lineno,
-                                    f"Possible {label} hardcoded in source"))
+    if enabled.get("hardcoded_secret", True):
+        for lineno, line in enumerate(text.splitlines(), 1):
+            if "example" in line.lower() or "xxx" in line.lower():
+                continue
+            for pat, label in _SECRET_PATTERNS:
+                if pat.search(line):
+                    findings.append(_mk("hardcoded_secret", FINDING_SEV_ERROR, rel, lineno,
+                                        f"Possible {label} hardcoded in source"))
+    if enabled.get("remote_exec", True):
+        findings += check_remote_exec_lines(text, rel)
     return filter_suppressed(findings, text)
 
 
