@@ -8,8 +8,8 @@ namespace AiCV.Core;
 /// minus the full AST (see docs/rules.md for the documented deltas).</summary>
 public static class Checks
 {
-    public static Finding Mk(string rule, string severity, string file, int line, string message) =>
-        new(rule, severity, file, line, message);
+    public static Finding Mk(string rule, string severity, string file, int line, string message, int? column = null) =>
+        new(rule, severity, file, line, message, column);
 
     // ---------- shared regex patterns (mirrors of the Python originals) ----------
 
@@ -43,9 +43,10 @@ public static class Checks
 
     private static readonly Regex TodoMarker = new(@"(?i)\b(TODO|FIXME)\b(?::|\b)");
 
-    /// <summary>`# aicv: ignore` (all rules on the line) or `# aicv: ignore[r1, r2]`.</summary>
+    /// <summary>`# aicv: ignore` (all rules on the line) or `# aicv: ignore[r1, r2]`.
+    /// C-like languages may also use the `// aicv: ignore` comment form.</summary>
     private static readonly Regex SuppressRe =
-        new(@"#\s*aicv:\s*ignore(?:\[(?<rules>[^\]]*)\])?");
+        new(@"(?://|#)\s*aicv:\s*ignore(?:\[(?<rules>[^\]]*)\])?");
 
     public const string SuppressAll = "*";
 
@@ -53,8 +54,9 @@ public static class Checks
     public static readonly string[] JsExt = { ".js", ".ts", ".mjs", ".jsx", ".tsx" };
     public static readonly string[] GoExt = { ".go" };
     public static readonly string[] JavaExt = { ".java" };
+    public static readonly string[] CsExt = { ".cs" };
     public static readonly HashSet<string> ScanExts =
-        new(PyExt.Concat(JsExt).Concat(GoExt).Concat(JavaExt), StringComparer.OrdinalIgnoreCase);
+        new(PyExt.Concat(JsExt).Concat(GoExt).Concat(JavaExt).Concat(CsExt), StringComparer.OrdinalIgnoreCase);
 
     private static string[] SplitLines(string text) =>
         text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
@@ -459,6 +461,23 @@ public static class Checks
         var findings = CheckTextLanguage(text, rel, enabled);
         if (enabled.TryGetValue("syntax_error", out var se) ? se : true)
             findings.AddRange(CheckBracketBalance(text, rel));
+        return FilterSuppressed(findings, text);
+    }
+
+    /// <summary>C# checks: the Roslyn AST path (CSharpAst) is authoritative
+    /// for dangerous calls / shell targets / interpolated SQL / the syntax
+    /// gate (exact row/col); secrets, remote-exec one-liners and TODO/FIXME
+    /// stay line-level (identical on the Python side, so parity holds).</summary>
+    public static List<Finding> CheckCSharpFile(string text, string rel, IReadOnlyDictionary<string, bool> enabled)
+    {
+        var findings = new List<Finding>();
+        findings.AddRange(CSharpAst.Check(text, rel, enabled));
+        if (enabled.TryGetValue("hardcoded_secret", out var hs) ? hs : true)
+            findings.AddRange(CheckHardcodedSecrets(text, rel, skipDummy: false));
+        if (enabled.TryGetValue("remote_exec", out var re) ? re : true)
+            findings.AddRange(CheckRemoteExecLines(text, rel));
+        if (enabled.TryGetValue("todo_fixme", out var tf) ? tf : true)
+            findings.AddRange(CheckTodoFixme(text, rel));
         return FilterSuppressed(findings, text);
     }
 }

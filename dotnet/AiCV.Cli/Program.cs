@@ -8,7 +8,7 @@ namespace AiCV.Cli;
 /// ci, diff, verdict. Machine flags: --json, --sarif, --annotate.</summary>
 internal static class Program
 {
-    private const string Version = "1.0.0";
+    private const string Version = "1.1.0";
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -97,7 +97,7 @@ internal static class Program
         {
             var target = args.Staged ? "staged" : "diff HEAD";
             Console.Out.WriteLine(
-                "aicv: no changed .py/.js/.ts/.go/.java files for target '" + target +
+                "aicv: no changed .py/.js/.ts/.go/.java/.cs files for target '" + target +
                 "' — nothing to verify.");
             return 0;
         }
@@ -135,7 +135,7 @@ internal static class Program
         if (rels.Count == 0)
         {
             Console.Out.WriteLine(
-                "aicv diff: no changed .py/.js/.ts/.go/.java files between " +
+                "aicv diff: no changed .py/.js/.ts/.go/.java/.cs files between " +
                 $"{ref1}...{ref2} — nothing to verify.");
             return 0;
         }
@@ -291,7 +291,7 @@ internal static class Program
         {
             var target = args.Staged ? "staged" : "diff HEAD";
             Console.Out.WriteLine(
-                "aicv baseline: no changed .py/.js/.ts/.go/.java files for target '" +
+                "aicv baseline: no changed .py/.js/.ts/.go/.java/.cs files for target '" +
                 target + "' — nothing to record.");
             return 0;
         }

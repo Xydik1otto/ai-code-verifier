@@ -178,6 +178,19 @@ public static class Engine
     private static string ReadAllText(string path) =>
         File.ReadAllText(path, System.Text.Encoding.UTF8);
 
+    /// <summary>Finding -> JSON object for report artifacts (findings list);
+    /// "column" is emitted only when the scanner knows an exact column
+    /// (Roslyn AST findings for .cs).</summary>
+    public static object FindingJson(Finding f) => f.Column is int col
+        ? (object)new { rule = f.Rule, severity = f.Severity, file = f.File, line = f.Line, column = col, message = f.Message }
+        : (object)new { rule = f.Rule, severity = f.Severity, file = f.File, line = f.Line, message = f.Message };
+
+    /// <summary>Finding -> JSON object for the verdict `errors` list
+    /// (file/line/rule/message [+column] — no severity, mirroring Python).</summary>
+    private static object VerdictErrorJson(Finding f) => f.Column is int col
+        ? (object)new { file = f.File, line = f.Line, column = col, rule = f.Rule, message = f.Message }
+        : (object)new { file = f.File, line = f.Line, rule = f.Rule, message = f.Message };
+
     public static List<Finding> RunChecks(string root, List<string> files,
         IReadOnlyDictionary<string, bool> enabled, IReadOnlyDictionary<string, string>? severities = null)
     {
@@ -199,6 +212,7 @@ public static class Engine
             else if (Checks.JsExt.Contains(ext)) findings.AddRange(Checks.CheckJsTsFile(text, rel, enabled));
             else if (Checks.GoExt.Contains(ext)) findings.AddRange(Checks.CheckGoFile(text, rel, enabled));
             else if (Checks.JavaExt.Contains(ext)) findings.AddRange(Checks.CheckJavaFile(text, rel, enabled));
+            else if (Checks.CsExt.Contains(ext)) findings.AddRange(Checks.CheckCSharpFile(text, rel, enabled));
         }
         if (severities is { Count: > 0 })
             findings = findings
@@ -228,7 +242,7 @@ public static class Engine
             .OrderBy(f => f.File, StringComparer.Ordinal)
             .ThenBy(f => f.Line)
             .ThenBy(f => f.Rule, StringComparer.Ordinal)
-            .Select(f => new { file = f.File, line = f.Line, rule = f.Rule, message = f.Message })
+            .Select(VerdictErrorJson)
             .ToList(),
         exit_code = ExitCode(findings),
     };
@@ -268,6 +282,7 @@ public static class Engine
                             ["region"] = new System.Text.Json.Nodes.JsonObject
                             {
                                 ["startLine"] = f.Line,
+                                ["character"] = f.Column ?? 1,
                             },
                         },
                     },
@@ -377,14 +392,7 @@ public static class Engine
             target,
             generated_at = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssK"),
             files = rels,
-            findings = findings.Select(f => new
-            {
-                rule = f.Rule,
-                severity = f.Severity,
-                file = f.File,
-                line = f.Line,
-                message = f.Message,
-            }).ToList(),
+            findings = findings.Select(FindingJson).ToList(),
             counts = SeverityCounts(findings),
             exit_code = ExitCode(findings),
         };
