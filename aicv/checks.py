@@ -47,6 +47,14 @@ _SECRET_PATTERNS = [
     (re.compile(r"(?i)\b(password|passwd)\s*[:=]\s*['\"][^'\"]{8,}['\"]"), "password literal"),
     (re.compile(r"\b(sk|pk)-[A-Za-z0-9]{20,}\b"), "Stripe-style key"),
     (re.compile(r"\bghp_[A-Za-z0-9]{30,}\b"), "GitHub token"),
+    # Go-specific: short-declaration secrets (password := "...")
+    (re.compile(r"(?i)\b(password|passwd|secret|token|api[_-]?key|apikey|credential)\s*:=\s*\"[^\"]{8,}\""),
+     "secret literal (Go :=)"),
+    # Java-specific: String password = "...", private final String API_KEY = "..."
+    (re.compile(r"(?i)\bString\s+\w*(password|passwd|secret|token|api[_-]?key|apikey|credential)\w*\s*=\s*\"[^\"]{8,}\""),
+     "secret literal (String field)"),
+    (re.compile(r"(?i)\b(private|protected|public|static|final)\s+(?:[\w<>\[\],\s]+\s+)?\w*(password|passwd|secret|token|api[_-]?key|apikey)\w*\s*=\s*\"[^\"]{8,}\""),
+     "secret literal (field initializer)"),
 ]
 
 # Remote-code-execution "nuclear" patterns: download-and-execute one-liners
@@ -352,6 +360,124 @@ def check_js_ts_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dic
     if enabled.get("todo_fixme", True):
         findings += check_todo_fixme(text, rel)
     return filter_suppressed(findings, text)
+
+
+# ---------- Go / Java pre-scan (regex level, v1.0) ----------
+#
+# No full parser for Go/Java in a zero-dependency tool; the pre-scan covers
+# what a regex can catch reliably: hardcoded secrets (shared + language-
+# specific shapes), TODO/FIXME markers, remote-exec one-liners and a light
+# bracket-balance syntax heuristic (comments and string literals stripped).
+
+GO_EXT = {".go"}
+JAVA_EXT = {".java"}
+
+
+def _strip_comments_and_strings(text: str) -> str:
+    """Blank out // and /* */ comments and "..." / `...` / '...' literals so
+    bracket counting sees only code structure. Handles escape sequences;
+    unterminated literals are treated as running to end of line."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if ch == "/" and nxt == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            out.append("\n" if i < n else "")
+        elif ch == "/" and nxt == "*":
+            end = text.find("*/", i + 2)
+            newlines = text.count("\n", i, n if end == -1 else end)
+            out.append("\n" * newlines)
+            i = n if end == -1 else end + 2
+        elif ch in ('"', "'", "`"):
+            quote = ch
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    i += 1
+                    break
+                if text[i] == "\n":  # unterminated single-line literal
+                    break
+                i += 1
+            out.append(" ")
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+_BRACKETS = {"(": ")", "[": "]", "{": "}"}
+
+
+def check_bracket_balance(text: str, rel: str) -> List[Dict]:
+    """Light regex-level syntax gate: unbalanced ()/[]{} after stripping
+    comments and string literals -> syntax_error. Line number points at the
+    last line of the file (where the mismatch becomes visible)."""
+    stripped = _strip_comments_and_strings(text)
+    stack: List[tuple] = []
+    lineno = 1
+    for ch in stripped:
+        if ch == "\n":
+            lineno += 1
+        elif ch in _BRACKETS:
+            stack.append((ch, lineno))
+        elif ch in _BRACKETS.values():
+            if not stack or _BRACKETS[stack[-1][0]] != ch:
+                return [_mk("syntax_error", FINDING_SEV_ERROR, rel, lineno,
+                            f"Unbalanced '{ch}' — bracket/brace mismatch "
+                            f"(pre-scan; run gofmt/javac for a full parse)")]
+            stack.pop()
+    if stack:
+        ch, ln = stack[-1]
+        return [_mk("syntax_error", FINDING_SEV_ERROR, rel, ln,
+                    f"Unclosed '{ch}' — bracket/brace mismatch at end of file "
+                    f"(pre-scan; run gofmt/javac for a full parse)")]
+    return []
+
+
+def _check_text_language(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
+    """Shared text-level chain for Go/Java: secrets, remote exec, TODO/FIXME."""
+    findings: List[Dict] = []
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if enabled.get("hardcoded_secret", True):
+        for lineno, line in enumerate(text.splitlines(), 1):
+            low = line.lower()
+            if "example" in low or "xxx" in low:
+                continue
+            for pat, label in _SECRET_PATTERNS:
+                if pat.search(line):
+                    findings.append(_mk("hardcoded_secret", FINDING_SEV_ERROR, rel, lineno,
+                                        f"Possible {label} hardcoded in source"))
+    if enabled.get("remote_exec", True):
+        findings += check_remote_exec_lines(text, rel)
+    if enabled.get("todo_fixme", True):
+        findings += check_todo_fixme(text, rel)
+    return filter_suppressed(findings, text)
+
+
+def check_go_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
+    """Regex-level pre-scan for Go: secrets, remote exec, TODO/FIXME,
+    bracket-balance syntax heuristic."""
+    findings = _check_text_language(path, rel, enabled)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if enabled.get("syntax_error", True):
+        findings += check_bracket_balance(text, rel)
+    return findings
+
+
+def check_java_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
+    """Regex-level pre-scan for Java: secrets, remote exec, TODO/FIXME,
+    bracket-balance syntax heuristic."""
+    findings = _check_text_language(path, rel, enabled)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if enabled.get("syntax_error", True):
+        findings += check_bracket_balance(text, rel)
+    return findings
 
 
 def run_ruff(paths: List[Path]) -> List[Dict]:

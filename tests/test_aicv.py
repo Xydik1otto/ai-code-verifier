@@ -493,6 +493,100 @@ def test_severity_info_level_in_sarif():
     assert doc["runs"][0]["results"][0]["level"] == "note"
 
 
+# ---------- v1.0: Go / Java secret/syntax pre-scan (regex level) ----------
+
+def _check_lang(rel: str, checker, rules=None):
+    path = FIXTURES / rel
+    return checker(path, rel, rules or DEFAULT_RULES)
+
+
+def _check_go(rel, rules=None):
+    from aicv.checks import check_go_file
+    return _check_lang(rel, check_go_file, rules)
+
+
+def _check_java(rel, rules=None):
+    from aicv.checks import check_java_file
+    return _check_lang(rel, check_java_file, rules)
+
+
+def test_go_secrets_detected():
+    fs = _check_go("bad_secrets.go")
+    secrets = findings_by_rule(fs, "hardcoded_secret")
+    labels = " ".join(f["message"] for f in secrets)
+    assert "AWS access key id" in labels, secrets
+    assert "secret literal (Go :=)" in labels, secrets
+    assert "Bearer token" in labels, secrets
+    assert all(f["severity"] == "error" for f in secrets)
+
+
+def test_go_todo_and_clean_file():
+    fs = _check_go("bad_secrets.go")
+    assert findings_by_rule(fs, "todo_fixme"), "TODO marker must be flagged in .go"
+    clean = _check_go("clean_code.go")
+    assert clean == [], f"clean Go file must produce no findings, got {clean}"
+
+
+def test_java_secrets_detected():
+    fs = _check_java("bad_secrets.java")
+    secrets = findings_by_rule(fs, "hardcoded_secret")
+    labels = " ".join(f["message"] for f in secrets)
+    assert "secret literal (String field)" in labels, secrets
+    assert "secret literal (field initializer)" in labels, secrets
+    assert "Slack token" in labels, secrets
+    assert "Bearer token" in labels, secrets
+
+
+def test_java_unbalanced_braces_flagged_as_syntax_error():
+    fs = _check_java("bad_secrets.java")
+    syn = findings_by_rule(fs, "syntax_error")
+    assert len(syn) == 1, syn
+    assert syn[0]["severity"] == "error"
+    assert "Unclosed '{'" in syn[0]["message"]
+
+
+def test_java_clean_file_no_findings():
+    assert _check_java("clean_code.java") == []
+
+
+def test_go_bracket_balance_clean_and_broken():
+    from aicv.checks import check_bracket_balance
+    ok = (FIXTURES / "clean_code.go").read_text(encoding="utf-8")
+    assert check_bracket_balance(ok, "clean.go") == []
+    # braces inside strings and comments must not confuse the counter
+    tricky = 'package main\n\n// comment { [( )\nvar s = "}{]"\nfunc f() {\n\t_ = s\n}\n'
+    assert check_bracket_balance(tricky, "tricky.go") == []
+    broken = 'package main\n\nfunc f() {\n\t_ = 1\n'
+    fs = check_bracket_balance(broken, "broken.go")
+    assert len(fs) == 1 and fs[0]["rule"] == "syntax_error" and fs[0]["line"] == 3
+
+
+def test_lang_secret_rules_toggleable():
+    disabled = dict(DEFAULT_RULES, hardcoded_secret=False)
+    assert findings_by_rule(_check_go("bad_secrets.go", disabled), "hardcoded_secret") == []
+    assert findings_by_rule(_check_java("bad_secrets.java", disabled), "hardcoded_secret") == []
+
+
+def test_engine_routes_go_and_java_files(tmp_path):
+    shutil.copy(FIXTURES / "bad_secrets.go", tmp_path / "svc.go")
+    shutil.copy(FIXTURES / "bad_secrets.java", tmp_path / "Svc.java")
+    findings = run_checks(tmp_path, [tmp_path / "svc.go", tmp_path / "Svc.java"],
+                          DEFAULT_RULES, use_ruff=False)
+    rules = {f["rule"] for f in findings}
+    assert "hardcoded_secret" in rules and "syntax_error" in rules
+    assert exit_code(findings) == 1
+
+
+def test_cli_scans_go_and_java_end_to_end(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_secrets.go", git_repo / "main.go")
+    shutil.copy(FIXTURES / "clean_code.java", git_repo / "Clean.java")
+    rc = main(["check", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "main.go" in out and "2 file(s)" in out
+    assert "hardcoded_secret" in out
+
+
 def test_cli_severity_config_affects_exit_code(git_repo, capsys):
     shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
     (git_repo / ".aicv.toml").write_text(

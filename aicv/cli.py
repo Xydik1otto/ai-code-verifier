@@ -18,7 +18,8 @@ def _cmd_check(args, root: Path) -> int:
     files = changed_files(root, staged=args.staged)
     if not files:
         target = "staged" if args.staged else "diff HEAD"
-        print(f"aicv: no changed .py/.js/.ts files for target '{target}' — nothing to verify.")
+        print(f"aicv: no changed .py/.js/.ts/.go/.java files for target '{target}' "
+              f"— nothing to verify.")
         return 0
     return _scan(args, root, files, "staged" if args.staged else "diff HEAD")
 
@@ -99,8 +100,8 @@ def _cmd_baseline(args, root: Path) -> int:
     files = changed_files(root, staged=args.staged)
     if not files:
         target = "staged" if args.staged else "diff HEAD"
-        print(f"aicv baseline: no changed .py/.js/.ts files for target '{target}' "
-              f"— nothing to record.")
+        print(f"aicv baseline: no changed .py/.js/.ts/.go/.java files for target "
+              f"'{target}' — nothing to record.")
         return 0
     enabled = load_config(root)
     severities = load_severities(root)

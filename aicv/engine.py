@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .checks import RULES, check_js_ts_file, check_python_file, run_ruff
+from .checks import (JAVA_EXT, GO_EXT, RULES, check_java_file, check_go_file,
+                     check_js_ts_file, check_python_file, run_ruff)
 
 PY_EXT = {".py"}
 JS_EXT = {".js", ".ts", ".mjs", ".jsx", ".tsx"}
@@ -129,6 +130,10 @@ def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
             py_paths.append(path)
         elif ext in JS_EXT:
             findings += check_js_ts_file(path, rel, enabled)
+        elif ext in GO_EXT:
+            findings += check_go_file(path, rel, enabled)
+        elif ext in JAVA_EXT:
+            findings += check_java_file(path, rel, enabled)
     if use_ruff and py_paths:
         ruff_findings = run_ruff(py_paths)
         if ruff_findings:

@@ -37,6 +37,9 @@ AI пише дедалі більше коду, але людина мусить
 | `todo_fixme` | маркери TODO/FIXME, залишені в коді (warning) |
 | `ruff:*` | все, що знайде ruff, якщо він встановлений (graceful fallback) |
 
+Мови: **Python** (AST + py_compile), **JS/TS, Go, Java** (regex pre-scan:
+секрети, remote-exec, TODO/FIXME, баланс дужок).
+
 ## Встановлення
 
 ```bash
