@@ -8,10 +8,11 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .engine import (apply_baseline, build_verdict, changed_files, exit_code,
-                     load_baseline, load_config, load_severities,
-                     render_annotations, render_sarif, run_checks, save_baseline,
-                     save_report, severity_counts)
+from .engine import (apply_baseline, build_verdict, changed_files,
+                     exit_code, load_baseline, load_config, load_severities,
+                     render_annotations, render_sarif, run_checks,
+                     run_checks_between, save_baseline, save_report,
+                     severity_counts)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -43,6 +44,10 @@ def _scan(args, root: Path, files, target: str) -> int:
     severities = load_severities(root)
     findings = run_checks(root, files, enabled, use_ruff=not args.no_ruff,
                           severities=severities)
+    return _emit(args, root, files, findings, target)
+
+
+def _emit(args, root: Path, files, findings: List[Dict], target: str) -> int:
     baseline_note = None
     if getattr(args, "baseline", False):
         keys = load_baseline(root)
@@ -93,6 +98,25 @@ def _scan(args, root: Path, files, target: str) -> int:
         for line in human:
             print(line)
     return rc
+
+
+def _cmd_diff(args, root: Path) -> int:
+    """Compare two refs (e.g. `aicv diff main feature-x`): scan the files
+    changed between them, taking file content from the second ref."""
+    if args.ref1 == args.ref2:
+        print(f"aicv diff: both refs are '{args.ref1}' — nothing to compare.")
+        return 2
+    enabled = load_config(root)
+    severities = load_severities(root)
+    findings, rels = run_checks_between(root, args.ref1, args.ref2, enabled,
+                                        use_ruff=not args.no_ruff,
+                                        severities=severities)
+    if not rels:
+        print(f"aicv diff: no changed .py/.js/.ts/.go/.java files between "
+              f"{args.ref1}...{args.ref2} — nothing to verify.")
+        return 0
+    target = f"diff {args.ref1}...{args.ref2}"
+    return _emit(args, root, [root / rel for rel in rels], findings, target)
 
 
 def _cmd_baseline(args, root: Path) -> int:
@@ -223,6 +247,18 @@ def build_parser() -> argparse.ArgumentParser:
                       help="print GitHub Actions workflow commands "
                            "(::error file=...,line=...::message) as PR annotations")
     p_ci.set_defaults(func=_cmd_ci)
+
+    p_diff = sub.add_parser(
+        "diff", help="verify the files changed between two refs "
+                     "(e.g. `aicv diff main feature-x`)")
+    p_diff.add_argument("ref1", help="base ref (branch, tag or sha)")
+    p_diff.add_argument("ref2", help="target ref — file content is taken from here")
+    p_diff.add_argument("--no-ruff", action="store_true")
+    p_diff.add_argument("--json", action="store_true")
+    p_diff.add_argument("--sarif", action="store_true")
+    p_diff.add_argument("--annotate", action="store_true",
+                        help="print GitHub Actions workflow commands")
+    p_diff.set_defaults(func=_cmd_diff)
 
     p_baseline = sub.add_parser(
         "baseline", help="record current findings as accepted legacy debt "

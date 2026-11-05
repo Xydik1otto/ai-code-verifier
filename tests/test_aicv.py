@@ -629,7 +629,102 @@ def test_docs_rules_md_in_sync_with_rules_registry():
         assert spec["name"] in text, f"description of {rid} missing from docs/rules.md"
 
 
-# ---------- CLI end-to-end in a scratch git repo ----------
+# ---------- v1.0: `aicv diff ref1 ref2` ----------
+
+def _current_branch(cwd) -> str:
+    proc = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(cwd),
+                          capture_output=True, text=True)
+    return proc.stdout.strip()
+
+
+def _commit_all(cwd, msg):
+    _git(cwd, "add", "-A")
+    _git(cwd, "commit", "-qm", msg)
+
+
+def test_cli_diff_two_branches_fails_on_bad_ref2_content(git_repo, capsys):
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    _commit_all(git_repo, "feat: bad file")
+    rc = main(["diff", base, "feature", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "[diff " in out and "...feature]" in out
+    assert "bad.py" in out
+    assert "(dangerous_call)" in out
+
+
+def test_cli_diff_uses_ref2_content_not_worktree(git_repo, capsys):
+    """The worktree is dirty, but diff must judge the committed ref2 content."""
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    _commit_all(git_repo, "feat: bad file")
+    # make the worktree version clean — diff must still FAIL (ref2 blob is bad)
+    shutil.copy(FIXTURES / "clean_code.py", git_repo / "bad.py")
+    rc = main(["diff", base, "feature", "--no-ruff"])
+    assert rc == 1, "findings must come from ref2 content, not the dirty worktree"
+
+
+def test_cli_diff_clean_branch_passes(git_repo, capsys):
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    shutil.copy(FIXTURES / "clean_code.py", git_repo / "clean.py")
+    _commit_all(git_repo, "feat: clean file")
+    rc = main(["diff", base, "feature", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "0 error(s)" in out
+
+
+def test_cli_diff_json_verdict(git_repo, capsys):
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    (git_repo / "bad.go").write_text(
+        'package main\n\nvar key = "xoxb-123456-abcdefghij"\n\nfunc f() {\n\t_ = key\n}\n')
+    _commit_all(git_repo, "feat: go secret")
+    rc = main(["diff", base, "feature", "--no-ruff", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == payload["exit_code"] == 1
+    assert payload["files_checked"] == 1
+    assert payload["errors"][0]["file"] == "bad.go"
+
+
+def test_cli_diff_same_refs_usage_error(git_repo, capsys):
+    rc = main(["diff", "main", "main"])
+    assert rc == 2 and "nothing to compare" in capsys.readouterr().out
+
+
+def test_cli_diff_unknown_ref_reports_nothing(git_repo, capsys):
+    rc = main(["diff", "no-such-ref", "HEAD", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "nothing to verify" in out
+
+
+def test_diff_refs_filters_to_scannable_extensions(git_repo):
+    from aicv.engine import diff_refs
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    (git_repo / "svc.go").write_text("package main\n")
+    (git_repo / "Svc.java").write_text("class Svc {}\n")
+    (git_repo / "notes.txt").write_text("not code\n")
+    (git_repo / "img.bin").write_bytes(b"\x00\x01")
+    _commit_all(git_repo, "mixed files")
+    rels = diff_refs(git_repo, base, "feature")
+    assert sorted(rels) == ["Svc.java", "svc.go"], rels
+
+
+def test_diff_refs_excludes_aicv_artifacts(git_repo):
+    from aicv.engine import diff_refs
+    base = _current_branch(git_repo)
+    _git(git_repo, "checkout", "-q", "-b", "feature")
+    (git_repo / ".aicv").mkdir()
+    (git_repo / ".aicv" / "latest.md").write_text("# report\n")
+    (git_repo / "ok.py").write_text("x = 1\n")
+    _commit_all(git_repo, "with artifacts")
+    rels = diff_refs(git_repo, base, "feature")
+    assert rels == ["ok.py"], rels
+
 
 def _git(cwd, *args):
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True)

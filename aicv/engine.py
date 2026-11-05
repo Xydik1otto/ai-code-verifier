@@ -64,6 +64,69 @@ def changed_files(root: Path, staged: bool = False, base_ref: Optional[str] = No
     return files
 
 
+# ---------- ref-to-ref diff mode (`aicv diff ref1 ref2`) ----------
+
+SCAN_EXTS = PY_EXT | JS_EXT | GO_EXT | JAVA_EXT
+
+
+def diff_refs(root: Path, ref1: str, ref2: str) -> List[str]:
+    """Relative paths changed between two git refs (merge-base diff, i.e.
+    `git diff --name-only ref1...ref2`), filtered to scannable extensions.
+    Returns [] when git fails (unknown ref, not a repo, etc.)."""
+    diff = _git(["diff", "--name-only", f"{ref1}...{ref2}"], root)
+    if diff is None:
+        return []
+    out = []
+    for line in diff.splitlines():
+        rel = line.strip()
+        if not rel or rel.startswith(".aicv/") or ".." in rel.replace("\\", "/").split("/"):
+            continue
+        if Path(rel).suffix.lower() in SCAN_EXTS:
+            out.append(rel)
+    return out
+
+
+def _blob(root: Path, ref: str, rel: str) -> Optional[bytes]:
+    """Raw file content at a ref (`git show ref:path`), or None on failure."""
+    try:
+        proc = subprocess.run(["git", "show", f"{ref}:{rel}"], cwd=str(root),
+                              capture_output=True)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
+def run_checks_between(root: Path, ref1: str, ref2: str, enabled: Dict[str, bool],
+                       use_ruff: bool = True,
+                       severities: Optional[Dict[str, str]] = None):
+    """Scan the files that differ between ref1...ref2, using the content as it
+    exists at ref2 (branch tip) — no checkout needed. Blobs are materialized
+    into a temp tree so every existing file checker runs unchanged; findings'
+    `file` paths come back as repo-relative paths. Returns (findings, rels)."""
+    rels = diff_refs(root, ref1, ref2)
+    if not rels:
+        return [], []
+    findings: List[Dict] = []
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="aicv-diff-") as td:
+        tmp = Path(td)
+        materialized: List[Path] = []
+        for rel in rels:
+            blob = _blob(root, ref2, rel)
+            if blob is None:
+                continue  # deleted/binary-unreadable at ref2 — skip gracefully
+            target = tmp / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob)
+            materialized.append(target)
+        if materialized:
+            findings = run_checks(tmp, materialized, enabled,
+                                  use_ruff=use_ruff, severities=severities)
+    return findings, rels
+
+
 def load_config(root: Path) -> Dict[str, bool]:
     """Read .aicv.toml if present: [rules] section with rule_id = true/false."""
     enabled = {rid: spec["default"] for rid, spec in RULES.items()}

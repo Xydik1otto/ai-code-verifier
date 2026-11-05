@@ -56,6 +56,7 @@ Zero runtime dependencies — працює навіть у мінімально�
 ```bash
 aicv check                # git diff HEAD (робоче дерево)
 aicv check --staged       # лише staged-зміни
+aicv diff main feature    # перевірка файлів між двома гілками/тегами
 aicv check --json         # machine-readable вердикт для agent-loop
 aicv check --sarif        # SARIF 2.1.0 -> .aicv/latest.sarif (GitHub code scanning)
 aicv report               # показати останній звіт
