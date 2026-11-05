@@ -3,11 +3,11 @@
 [![CI](https://github.com/bigpi/ai-code-verifier/actions/workflows/tests.yml/badge.svg)](https://github.com/bigpi/ai-code-verifier/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-orange.svg)](PLAN.md)
+[![Status: Beta](https://img.shields.io/badge/status-beta-blue.svg)](PLAN.md)
 
 Verification gate для AI-згенерованого коду: CLI + GitHub Action + pre-commit hook.
 
-## Проблема
+## Чому це існує
 
 AI пише дедалі більше коду, але людина мусить його перевіряти вручну — і саме це
 стало головним вузьким місцем розробки:
@@ -34,6 +34,7 @@ AI пише дедалі більше коду, але людина мусить
 | `hardcoded_secret` | API-ключі, токени (Slack `xox*`, Bearer, AWS `AKIA*`, GitHub, Stripe), паролі |
 | `sql_string_format` | SQL через f-string / `.format` / `%` |
 | `dead_import` | імпорти, які ніде не використовуються (opt-in) |
+| `todo_fixme` | маркери TODO/FIXME, залишені в коді (warning) |
 | `ruff:*` | все, що знайде ruff, якщо він встановлений (graceful fallback) |
 
 ## Встановлення
@@ -61,6 +62,48 @@ aicv verdict              # marker-вердикт для агентів (без 
 aicv verdict --summary    # один marker-рядок
 aicv init                 # згенерувати .aicv.toml
 aicv ci                   # CI: diff від GITHUB_BASE_REF
+aicv ci --annotate        # + workflow-команди ::error file=,line=:: (PR annotations)
+aicv baseline             # зафіксувати поточні знахідки як legacy-борг
+aicv check --baseline     # фейлити тільки НОВІ знахідки
+```
+
+### Baseline (legacy-борг)
+
+На живому репозиторії історичні знахідки не дають ввести гейт «з нуля».
+`aicv baseline` записує поточні знахідки у `.aicv/baseline.json`, після чого
+`aicv check --baseline` фейлиться лише на **нових** знахідках — борг
+зафіксований, новий код чистий:
+
+```bash
+aicv baseline             # один раз: зафіксувати поточний стан
+aicv check --baseline     # далі в CI: PASS, доки не з'явиться нова знахідка
+```
+
+Знаххідка ідентифікується парою (файл, рядок, правило); закомітьте
+`.aicv/baseline.json` разом із конфігом.
+
+### PR annotations
+
+`aicv ci --annotate` виводить стандартні GitHub Actions workflow-команди —
+додайте крок у workflow, і кожна знахідка з'явиться як анотація прямо
+на рядку дифу PR:
+
+```text
+::error file=bad.py,line=9::shell_exec: 'os.system()' executes a shell string — injection risk
+```
+
+### Severity per rule
+
+Кожне правило має severity: **error** (валить перевірку, exit code 1),
+**warning** та **info** (лише повідомляють). Типові рівні — у каталозі
+правил [docs/rules.md](docs/rules.md) (автогенерований з `RULES` через
+`python scripts/gen_rules.py`). Перевизначення — секція `[severity]`
+у `.aicv.toml`:
+
+```toml
+[severity]
+dead_import = "error"       # підняти до error
+dangerous_call = "warning"  # опустити — не валити збірку
 ```
 
 Реальний вивід на файлі з типовими AI-помилками (`exit code 1`):
@@ -161,8 +204,11 @@ repos:
 
 ## Статус
 
-**v0.3.0**: Python-файли (AST + py_compile) + JS/TS (regex-секрети),
+**v0.4.0**: Python-файли (AST + py_compile) + JS/TS (regex-секрети),
 git-інтеграція, звіти (групування по файлах + severity), inline-супресії,
 machine-readable вердикт (`--json`), SARIF 2.1.0, `aicv init`, `aicv verdict`,
-pre-commit hook, конфіг, GitHub Action приклад, pytest-набір.
-Дорожня карта — у [PLAN.md](PLAN.md).
+baseline mode, PR annotations (`ci --annotate`), severity per rule
+(`[severity]`), TODO/FIXME детектор, автогенерований
+[docs/rules.md](docs/rules.md), pre-commit hook, конфіг, GitHub Action
+приклад, smoke/pypi-скрипти, pytest-набір.
+Дорожня карта — у [PLAN.md](PLAN.md), історія — у [CHANGELOG.md](CHANGELOG.md).
