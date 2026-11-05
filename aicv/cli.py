@@ -9,8 +9,8 @@ from pathlib import Path
 
 from . import __version__
 from .engine import (apply_baseline, build_verdict, changed_files, exit_code,
-                     load_baseline, load_config, render_sarif, run_checks,
-                     save_baseline, save_report, severity_counts)
+                     load_baseline, load_config, render_annotations, render_sarif,
+                     run_checks, save_baseline, save_report, severity_counts)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -63,6 +63,12 @@ def _scan(args, root: Path, files, target: str) -> int:
     ]
     if baseline_note:
         human.insert(1, baseline_note)
+    if getattr(args, "annotate", False):
+        # GitHub Actions workflow commands -> inline annotations on the PR diff.
+        # With --json, stdout is reserved for the JSON verdict.
+        stream = sys.stderr if getattr(args, "json", False) else sys.stdout
+        for ann in render_annotations(findings):
+            print(ann, file=stream)
     rc = exit_code(findings)
     if getattr(args, "sarif", False):
         import json as _j
@@ -198,6 +204,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_ci.add_argument("--no-ruff", action="store_true")
     p_ci.add_argument("--json", action="store_true")
     p_ci.add_argument("--sarif", action="store_true")
+    p_ci.add_argument("--annotate", action="store_true",
+                      help="print GitHub Actions workflow commands "
+                           "(::error file=...,line=...::message) as PR annotations")
     p_ci.set_defaults(func=_cmd_ci)
 
     p_baseline = sub.add_parser(

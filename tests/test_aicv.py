@@ -348,6 +348,49 @@ def test_cli_check_baseline_without_baseline_file(git_repo, capsys):
     assert rc == 2, "--baseline without a recorded baseline must fail with usage error"
 
 
+# ---------- v0.4: PR annotations (aicv ci --annotate) ----------
+
+def test_render_annotations_format_and_escaping():
+    from aicv.engine import render_annotations
+    findings = [
+        {"rule": "dangerous_call", "severity": "error", "file": "a\\b.py", "line": 7,
+         "message": "Use of 'eval()' — 100% bad\nsecond line"},
+        {"rule": "dead_import", "severity": "warning", "file": "a/b.py", "line": 2,
+         "message": "unused import"},
+        {"rule": "style", "severity": "info", "file": "c.py", "line": 3,
+         "message": "note"},
+    ]
+    lines = render_annotations(findings)
+    # sorted by (file, line, rule): a/b.py line 2 first, then line 7, then c.py
+    assert lines[1] == ("::error file=a/b.py,line=7::dangerous_call: "
+                        "Use of 'eval()' — 100%25 bad%0Asecond line")
+    assert lines[0] == "::warning file=a/b.py,line=2::dead_import: unused import"
+    assert lines[2] == "::notice file=c.py,line=3::style: note"
+
+
+def test_cli_ci_annotate_prints_workflow_commands(git_repo, capsys, monkeypatch):
+    import subprocess as sp
+    base = sp.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(git_repo),
+                  capture_output=True, text=True).stdout.strip()
+    sp.run(["git", "checkout", "-q", "-b", "feature"], cwd=str(git_repo), check=True)
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    sp.run(["git", "add", "-A"], cwd=str(git_repo), check=True)
+    sp.run(["git", "-c", "user.name=t", "-c", "user.email=t@l", "commit", "-qm", "feat"],
+           cwd=str(git_repo), check=True)
+    monkeypatch.setenv("GITHUB_BASE_REF", base)
+    rc = main(["ci", "--no-ruff", "--annotate"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    anns = [ln for ln in out.splitlines() if ln.startswith("::")]
+    assert anns, "must emit at least one workflow command"
+    assert any(ln.startswith("::error file=bad.py,line=") for ln in anns)
+    assert any("(dangerous_call)" in ln or "dangerous_call" in ln for ln in anns)
+    # every annotation line must be well-formed: ::LEVEL file=...,line=...::msg
+    for ln in anns:
+        assert ln.count("::") >= 2
+        assert "file=" in ln and "line=" in ln
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):

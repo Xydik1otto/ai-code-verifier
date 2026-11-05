@@ -155,6 +155,23 @@ def render_sarif(findings: List[Dict]) -> Dict:
     }
 
 
+def render_annotations(findings: List[Dict]) -> List[str]:
+    """GitHub Actions workflow commands: ::error file=...,line=...::message.
+
+    These lines, printed by `aicv ci --annotate` inside a GitHub Actions
+    workflow, surface the findings as inline annotations on the PR diff.
+    """
+    level = {"error": "error", "warning": "warning", "info": "notice"}
+    out = []
+    for f in sorted(findings, key=lambda x: (x["file"], x["line"], x["rule"])):
+        msg = (f["message"].replace("%", "%25")
+               .replace("\r", "%0D").replace("\n", "%0A"))
+        file = f["file"].replace("\\", "/")  # GitHub annotations need forward slashes
+        out.append(f"::{level.get(f['severity'], 'error')} "
+                   f"file={file},line={int(f['line'])}::{f['rule']}: {msg}")
+    return out
+
+
 def severity_counts(findings: List[Dict]) -> Dict[str, int]:
     counts = {"error": 0, "warning": 0}
     for f in findings:
