@@ -80,8 +80,42 @@ def load_config(root: Path) -> Dict[str, bool]:
     return enabled
 
 
+VALID_SEVERITIES = {"error", "warning", "info"}
+
+
+def load_severities(root: Path) -> Dict[str, str]:
+    """Explicit per-rule severity overrides from .aicv.toml `[severity]`
+    (rule_id = "error" | "warning" | "info"). Only entries present in the
+    config are returned — built-in per-finding severities stay untouched
+    unless the user overrides a rule explicitly. Unknown rules and invalid
+    values are ignored."""
+    cfg = root / ".aicv.toml"
+    if not cfg.is_file():
+        return {}
+    try:
+        import tomllib
+        data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: Dict[str, str] = {}
+    for rid, val in (data.get("severity") or {}).items():
+        if rid in RULES and val in VALID_SEVERITIES:
+            out[rid] = val
+    return out
+
+
+def apply_severities(findings: List[Dict], severities: Dict[str, str]) -> List[Dict]:
+    """Override each finding's severity per its rule's configured severity."""
+    for f in findings:
+        sev = severities.get(f["rule"])
+        if sev:
+            f["severity"] = sev
+    return findings
+
+
 def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
-               use_ruff: bool = True) -> List[Dict]:
+               use_ruff: bool = True,
+               severities: Optional[Dict[str, str]] = None) -> List[Dict]:
     findings: List[Dict] = []
     py_paths: List[Path] = []
     for path in files:
@@ -113,13 +147,15 @@ def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
                 except OSError:
                     continue
                 findings += filter_suppressed(group, text)
+    if severities:
+        apply_severities(findings, severities)
     return findings
 
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = ("https://json.schemastore.org/sarif-2.1.0.json")
 
-_SEV_TO_SARIF = {"error": "error", "warning": "warning"}
+_SEV_TO_SARIF = {"error": "error", "warning": "warning", "info": "note"}
 
 
 def render_sarif(findings: List[Dict]) -> Dict:
@@ -173,7 +209,7 @@ def render_annotations(findings: List[Dict]) -> List[str]:
 
 
 def severity_counts(findings: List[Dict]) -> Dict[str, int]:
-    counts = {"error": 0, "warning": 0}
+    counts = {"error": 0, "warning": 0, "info": 0}
     for f in findings:
         counts[f["severity"]] = counts.get(f["severity"], 0) + 1
     return counts
@@ -226,11 +262,11 @@ def render_markdown(target: str, files: List[Path], findings: List[Dict], root: 
     by_file: Dict[str, List[Dict]] = {}
     for f in findings:
         by_file.setdefault(f["file"], []).append(f)
-    sev_rank = {"error": 0, "warning": 1}
+    sev_rank = {"error": 0, "warning": 1, "info": 2}
     for rel in sorted(by_file):
         lines.append(f"### `{rel}`")
         for f in sorted(by_file[rel], key=lambda x: (sev_rank.get(x["severity"], 9), x["line"])):
-            icon = "🔴" if f["severity"] == "error" else "🟡"
+            icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(f["severity"], "⚪")
             lines.append(f"- {icon} **[{f['severity'].upper()}]** line {f['line']} "
                          f"`{f['rule']}`: {f['message']}")
         lines.append("")

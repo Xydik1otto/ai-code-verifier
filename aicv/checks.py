@@ -14,16 +14,25 @@ from typing import Dict, List
 
 FINDING_SEV_ERROR = "error"
 FINDING_SEV_WARN = "warning"
+FINDING_SEV_INFO = "info"
 
-# Rule id -> {"name":..., "default": True/False} for .aicv.toml toggling.
+# Rule id -> {"name":..., "default": True/False, "severity": error/warning/info}
+# for .aicv.toml toggling ([rules]) and per-rule severity ([severity]).
 RULES: Dict[str, Dict] = {
-    "dangerous_call": {"name": "Dynamic code execution (eval/exec/compile)", "default": True},
-    "shell_exec": {"name": "Shell execution from strings", "default": True},
-    "remote_exec": {"name": "Remote/shell code execution patterns", "default": True},
-    "hardcoded_secret": {"name": "Hardcoded secrets in source", "default": True},
-    "sql_string_format": {"name": "SQL built via string formatting", "default": True},
-    "dead_import": {"name": "Imported but never used", "default": False},  # noisy -> opt-in
-    "syntax_error": {"name": "File does not parse/compile", "default": True},
+    "dangerous_call": {"name": "Dynamic code execution (eval/exec/compile)",
+                       "default": True, "severity": "error"},
+    "shell_exec": {"name": "Shell execution from strings",
+                   "default": True, "severity": "error"},
+    "remote_exec": {"name": "Remote/shell code execution patterns",
+                    "default": True, "severity": "error"},
+    "hardcoded_secret": {"name": "Hardcoded secrets in source",
+                         "default": True, "severity": "error"},
+    "sql_string_format": {"name": "SQL built via string formatting",
+                          "default": True, "severity": "error"},
+    "dead_import": {"name": "Imported but never used",
+                    "default": False, "severity": "warning"},  # noisy -> opt-in
+    "syntax_error": {"name": "File does not parse/compile",
+                     "default": True, "severity": "error"},
 }
 
 _SECRET_PATTERNS = [

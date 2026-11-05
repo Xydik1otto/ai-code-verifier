@@ -391,6 +391,106 @@ def test_cli_ci_annotate_prints_workflow_commands(git_repo, capsys, monkeypatch)
         assert "file=" in ln and "line=" in ln
 
 
+# ---------- v0.4: severity per rule ----------
+
+def test_rules_have_severity_defaults():
+    from aicv.checks import RULES
+    for rid, spec in RULES.items():
+        assert spec.get("severity") in {"error", "warning", "info"}, rid
+
+
+def test_severity_defaults_error_for_security_rules():
+    from aicv.checks import RULES
+    for rid in ("dangerous_call", "shell_exec", "remote_exec",
+                "hardcoded_secret", "sql_string_format", "syntax_error"):
+        assert RULES[rid]["severity"] == "error", rid
+
+
+def test_severity_override_demotes_to_warning(tmp_path):
+    from aicv.engine import load_severities
+    (tmp_path / ".aicv.toml").write_text('[severity]\ndangerous_call = "warning"\n')
+    sev = load_severities(tmp_path)
+    assert sev == {"dangerous_call": "warning"}  # only explicit overrides
+    (tmp_path / "only_eval.py").write_text("result = eval('1 + 1')\n")
+    findings = run_checks(tmp_path, [tmp_path / "only_eval.py"], DEFAULT_RULES,
+                          severities=sev)
+    dc = findings_by_rule(findings, "dangerous_call")
+    assert dc and all(f["severity"] == "warning" for f in dc)
+    assert exit_code(findings) == 0, "demoted rule must no longer fail the run"
+    # untouched rules keep their built-in per-finding severity
+    findings2 = run_checks(tmp_path, [FIXTURES / "bad_code.py"], DEFAULT_RULES,
+                           severities=sev)
+    assert exit_code(findings2) == 1  # other rules still error
+
+
+def test_severity_no_config_keeps_builtin_finding_severities(tmp_path):
+    # shell_exec fires as warning (bare-string subprocess) AND as error
+    # (os.system). Without an explicit [severity] entry the built-in
+    # per-finding severities must stay untouched.
+    from aicv.engine import load_severities
+    assert load_severities(tmp_path) == {}
+    (tmp_path / "mixed.py").write_text(
+        "import subprocess\n"
+        "subprocess.run('ls -la')  # bare string -> builtin warning\n")
+    findings = run_checks(tmp_path, [tmp_path / "mixed.py"], DEFAULT_RULES)
+    shell = findings_by_rule(findings, "shell_exec")
+    assert shell and all(f["severity"] == "warning" for f in shell)
+    assert exit_code(findings) == 0
+
+
+def test_severity_override_promotes_to_error_and_fails(tmp_path):
+    from aicv.engine import load_severities
+    (tmp_path / ".aicv.toml").write_text('[severity]\ndead_import = "error"\n')
+    sev = load_severities(tmp_path)
+    findings = run_checks(tmp_path, [FIXTURES / "dead_import_code.py"],
+                          dict(DEFAULT_RULES, dead_import=True), severities=sev)
+    di = findings_by_rule(findings, "dead_import")
+    assert di and all(f["severity"] == "error" for f in di)
+    assert exit_code(findings) == 1
+
+
+def test_severity_override_invalid_value_and_unknown_rule_ignored(tmp_path):
+    from aicv.engine import load_severities
+    (tmp_path / ".aicv.toml").write_text(
+        '[severity]\ndangerous_call = "banana"\nnot_a_rule = "info"\n')
+    assert load_severities(tmp_path) == {}
+
+
+def test_severity_info_level_in_sarif():
+    doc = render_sarif([{"rule": "todo_fixme", "severity": "info", "file": "a.py",
+                         "line": 1, "message": "m"}])
+    assert doc["runs"][0]["results"][0]["level"] == "note"
+
+
+def test_cli_severity_config_affects_exit_code(git_repo, capsys):
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    (git_repo / ".aicv.toml").write_text(
+        "[severity]\n"
+        'hardcoded_secret = "warning"\n'
+        'shell_exec = "warning"\n'
+        'sql_string_format = "warning"\n'
+        'dangerous_call = "warning"\n')
+    rc = main(["check", "--no-ruff"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "0 error(s)" in out
+
+
+def test_init_generates_severity_section(git_repo, capsys):
+    from aicv.engine import load_severities
+    main(["init"])
+    capsys.readouterr()
+    import tomllib
+    data = tomllib.loads((git_repo / ".aicv.toml").read_text(encoding="utf-8"))
+    sev = data["severity"]
+    assert sev == {}, "generated [severity] must be commented out by default"
+    text = (git_repo / ".aicv.toml").read_text(encoding="utf-8")
+    assert '# dangerous_call = "error"' in text
+    assert '# dead_import = "warning"' in text
+    # generated file carries no active overrides -> builtin severities intact
+    assert load_severities(git_repo) == {}
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):
