@@ -239,6 +239,16 @@ GitHub code scanning in a CI job:
           sarif_file: .aicv/latest.sarif
 ```
 
+## Contributing
+
+Contributions are welcome: bug reports (issue templates in Ukrainian and
+English), features, docs, code. See [CONTRIBUTING.md](CONTRIBUTING.md)
+(one commit + one test per change, regenerate `docs/rules.md` via
+`scripts/gen_rules.py`).
+
+Security: found a vulnerability — **don't** open a public issue, see
+[SECURITY.md](SECURITY.md).
+
 ## Status
 
 **v1.0.0**: Python files (AST + compile gate) + JS/TS, **Go, Java** (regex
@@ -250,4 +260,6 @@ auto-generated [docs/rules.md](docs/rules.md), benchmark
 (`scripts/benchmark.py`: 1000 files < 10 s), agent-integration docs
 ([docs/agent-integration.md](docs/agent-integration.md)), pre-commit hook,
 config, GitHub Action example, smoke/pypi scripts, pytest suite.
+topics: python, code-review, static-analysis, ai-tools, cli, security, sarif
+
 Roadmap — [PLAN.md](PLAN.md), history — [CHANGELOG.md](CHANGELOG.md).

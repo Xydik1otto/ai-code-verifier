@@ -234,6 +234,16 @@ repos:
           sarif_file: .aicv/latest.sarif
 ```
 
+## Contributing
+
+Внески вітаються: баг-репорти (шаблони issue — українською та англійською),
+фічі, документація, код. Правила гри — у
+[CONTRIBUTING.md](CONTRIBUTING.md) (окремий commit + тест на кожну зміну,
+`docs/rules.md` перегенеровувати через `scripts/gen_rules.py`).
+
+Безпека: знайшли вразливість — **не** створюйте публічний issue, дивіться
+[SECURITY.md](SECURITY.md).
+
 ## Статус
 
 **v1.0.0**: Python-файли (AST + compile-гейт) + JS/TS, **Go, Java**
@@ -246,4 +256,7 @@ TODO/FIXME детектор, автогенерований [docs/rules.md](docs
 для агентів ([docs/agent-integration.md](docs/agent-integration.md)),
 pre-commit hook, конфіг, GitHub Action приклад, smoke/pypi-скрипти,
 pytest-набір.
+Рекомендовані GitHub topics: `python`, `code-review`, `static-analysis`,
+`ai-tools`, `cli`, `security`, `sarif`.
+
 Дорожня карта — у [PLAN.md](PLAN.md), історія — у [CHANGELOG.md](CHANGELOG.md).
