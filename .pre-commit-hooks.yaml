@@ -1,0 +1,17 @@
+# pre-commit framework hook definitions for aicv.
+# Wire it up in your repo's .pre-commit-config.yaml (see README):
+#
+#   repos:
+#     - repo: https://github.com/bigpi/ai-code-verifier
+#       rev: v0.1.0-alpha
+#       hooks:
+#         - id: aicv
+- id: aicv
+  name: aicv — verify AI-generated code
+  description: Security/quality gate for AI-generated code (AST + regex heuristics)
+  entry: aicv check --staged
+  language: python
+  pass_filenames: false
+  always_run: true
+  require_serial: true
+  stages: [pre-commit, pre-push]

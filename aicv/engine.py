@@ -51,8 +51,15 @@ def changed_files(root: Path, staged: bool = False, base_ref: Optional[str] = No
     files = []
     for line in names:
         p = (root / line).resolve()
-        if p.is_file() and not p.name.startswith("."):
-            files.append(p)
+        if not p.is_file() or p.name.startswith("."):
+            continue
+        try:
+            p.relative_to((root / REPORT_DIR).resolve())
+        except ValueError:
+            pass
+        else:
+            continue  # never scan aicv's own report artifacts
+        files.append(p)
     return files
 
 
@@ -89,7 +96,23 @@ def run_checks(root: Path, files: List[Path], enabled: Dict[str, bool],
         elif ext in JS_EXT:
             findings += check_js_ts_file(path, rel, enabled)
     if use_ruff and py_paths:
-        findings += run_ruff(py_paths)
+        ruff_findings = run_ruff(py_paths)
+        if ruff_findings:
+            # apply `# aicv: ignore` to ruff findings as well
+            from .checks import filter_suppressed
+            by_path: Dict[str, List[Dict]] = {}
+            for f in ruff_findings:
+                by_path.setdefault(f["file"], []).append(f)
+            for p in py_paths:
+                key = str(p)
+                group = by_path.get(key)
+                if not group:
+                    continue
+                try:
+                    text = p.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                findings += filter_suppressed(group, text)
     return findings
 
 
@@ -102,6 +125,20 @@ def severity_counts(findings: List[Dict]) -> Dict[str, int]:
 
 def exit_code(findings: List[Dict]) -> int:
     return 1 if any(f["severity"] == "error" for f in findings) else 0
+
+
+def build_verdict(files: List[Path], findings: List[Dict]) -> Dict:
+    """Machine-readable verdict for agent-loop integration."""
+    errors = [
+        {"file": f["file"], "line": f["line"], "rule": f["rule"], "message": f["message"]}
+        for f in sorted(findings, key=lambda x: (x["file"], x["line"], x["rule"]))
+        if f["severity"] == "error"
+    ]
+    return {
+        "files_checked": len(files),
+        "errors": errors,
+        "exit_code": exit_code(findings),
+    }
 
 
 def render_markdown(target: str, files: List[Path], findings: List[Dict], root: Path) -> str:
@@ -125,14 +162,22 @@ def render_markdown(target: str, files: List[Path], findings: List[Dict], root: 
                 rel = p.name
             lines.append(f"- `{rel}`")
         lines.append("")
-    if findings:
-        lines.append("## Findings")
-        for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"])):
-            lines.append(f"- [{f['severity'].upper()}] `{f['file']}:{f['line']}` "
-                         f"({f['rule']}) {f['message']}")
-    else:
-        lines.append("## Findings")
+    lines.append("## Findings")
+    if not findings:
         lines.append("No issues detected.")
+        return "\n".join(lines) + "\n"
+    # group by file; within a file: errors before warnings, then by line
+    by_file: Dict[str, List[Dict]] = {}
+    for f in findings:
+        by_file.setdefault(f["file"], []).append(f)
+    sev_rank = {"error": 0, "warning": 1}
+    for rel in sorted(by_file):
+        lines.append(f"### `{rel}`")
+        for f in sorted(by_file[rel], key=lambda x: (sev_rank.get(x["severity"], 9), x["line"])):
+            icon = "🔴" if f["severity"] == "error" else "🟡"
+            lines.append(f"- {icon} **[{f['severity'].upper()}]** line {f['line']} "
+                         f"`{f['rule']}`: {f['message']}")
+        lines.append("")
     return "\n".join(lines) + "\n"
 
 

@@ -170,6 +170,44 @@ def check_dead_imports(tree: ast.AST, rel: str) -> List[Dict]:
     return out
 
 
+# Inline suppression: `# aicv: ignore` (all rules on the line) or
+# `# aicv: ignore[rule1, rule2]` (only the listed rules).
+_SUPPRESS_RE = re.compile(r"#\s*aicv:\s*ignore(?:\[(?P<rules>[^\]]*)\])?")
+
+SUPPRESS_ALL = "*"
+
+
+def suppression_map(text: str) -> Dict[int, object]:
+    """line number -> SUPPRESS_ALL or set of rule ids suppressed on that line."""
+    out: Dict[int, object] = {}
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = _SUPPRESS_RE.search(line)
+        if not m:
+            continue
+        rules = (m.group("rules") or "").strip()
+        out[lineno] = SUPPRESS_ALL if not rules else {
+            r.strip() for r in rules.split(",") if r.strip()
+        }
+    return out
+
+
+def filter_suppressed(findings: List[Dict], text: str) -> List[Dict]:
+    """Drop findings suppressed by an `# aicv: ignore` comment on their line."""
+    smap = suppression_map(text)
+    if not smap:
+        return findings
+    out = []
+    for f in findings:
+        rules = smap.get(f["line"])
+        if rules is None:
+            out.append(f)
+        elif rules == SUPPRESS_ALL or f["rule"] in rules:
+            continue
+        else:
+            out.append(f)
+    return out
+
+
 def _mk(rule, severity, file, lineno, message):
     return {"rule": rule, "severity": severity, "file": file, "line": lineno, "message": message}
 
@@ -193,7 +231,7 @@ def check_python_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Di
         findings += check_hardcoded_secrets(text, rel)
     if enabled.get("dead_import", False):
         findings += check_dead_imports(tree, rel)
-    return findings
+    return filter_suppressed(findings, text)
 
 
 def check_js_ts_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dict]:
@@ -209,7 +247,7 @@ def check_js_ts_file(path: Path, rel: str, enabled: Dict[str, bool]) -> List[Dic
             if pat.search(line):
                 findings.append(_mk("hardcoded_secret", FINDING_SEV_ERROR, rel, lineno,
                                     f"Possible {label} hardcoded in source"))
-    return findings
+    return filter_suppressed(findings, text)
 
 
 def run_ruff(paths: List[Path]) -> List[Dict]:

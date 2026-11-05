@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .engine import (changed_files, exit_code, load_config, run_checks,
-                     save_report)
+from .engine import (build_verdict, changed_files, exit_code, load_config,
+                     run_checks, save_report)
 
 
 def _cmd_check(args, root: Path) -> int:
@@ -42,16 +42,26 @@ def _scan(args, root: Path, files, target: str) -> int:
     counts = {"error": 0, "warning": 0}
     for f in findings:
         counts[f["severity"]] += 1
-    print(f"aicv: checked {len(files)} file(s) [{target}] — "
-          f"{counts['error']} error(s), {counts['warning']} warning(s)")
-    for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"])):
-        print(f"  [{f['severity'].upper()}] {f['file']}:{f['line']} ({f['rule']}) {f['message']}")
-    print(f"report: {md}")
-    if args.json:
+    human = [
+        f"aicv: checked {len(files)} file(s) [{target}] — "
+        f"{counts['error']} error(s), {counts['warning']} warning(s)",
+        *[f"  [{f['severity'].upper()}] {f['file']}:{f['line']} ({f['rule']}) {f['message']}"
+          for f in sorted(findings, key=lambda x: (x["severity"], x["file"], x["line"]))],
+        f"report: {md}",
+    ]
+    rc = exit_code(findings)
+    if getattr(args, "json", False):
+        # machine-readable verdict for agent-loop integration: stdout carries
+        # only the JSON; human-readable output goes to stderr.
         import json as _j
-        d = root / ".aicv" / "latest.json"
-        print(_j.dumps(_j.loads(d.read_text(encoding="utf-8")), ensure_ascii=False))
-    return exit_code(findings)
+        verdict = build_verdict(files, findings)
+        print(_j.dumps(verdict, ensure_ascii=False))
+        for line in human:
+            print(line, file=sys.stderr)
+    else:
+        for line in human:
+            print(line)
+    return rc
 
 
 def _cmd_report(args, root: Path) -> int:
@@ -76,7 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_check = sub.add_parser("check", help="verify changed files (git diff HEAD or --staged)")
     p_check.add_argument("--staged", action="store_true", help="only staged changes")
     p_check.add_argument("--no-ruff", action="store_true", help="skip ruff even if installed")
-    p_check.add_argument("--json", action="store_true", help="also print the JSON report")
+    p_check.add_argument("--json", action="store_true",
+                         help="print a machine-readable verdict JSON to stdout "
+                              "(agent-loop integration)")
     p_check.set_defaults(func=_cmd_check)
 
     p_rep = sub.add_parser("report", help="print the latest verification report")
