@@ -726,6 +726,36 @@ def test_diff_refs_excludes_aicv_artifacts(git_repo):
     assert rels == ["ok.py"], rels
 
 
+# ---------- v1.0: first-run UX (works with no config) ----------
+
+def test_first_run_without_config_uses_smart_defaults(git_repo, capsys):
+    """A brand-new repo has no .aicv.toml — aicv must work out of the box."""
+    assert not (git_repo / ".aicv.toml").exists()
+    cfg = load_config(git_repo)
+    from aicv.checks import RULES
+    assert cfg == {rid: spec["default"] for rid, spec in RULES.items()}
+    # secrets + dangerous calls are ON by default, noisy dead_import is OFF
+    assert cfg["hardcoded_secret"] is True and cfg["dangerous_call"] is True
+    assert cfg["dead_import"] is False
+    shutil.copy(FIXTURES / "bad_code.py", git_repo / "bad.py")
+    rc = main(["check", "--no-ruff"])
+    assert rc == 1, "first run with no config must still catch errors"
+    # and `aicv init` can optionally materialize the defaults
+    rc2 = main(["init"])
+    capsys.readouterr()
+    assert rc2 == 0 and (git_repo / ".aicv.toml").is_file()
+
+
+def test_first_run_report_written_without_config(git_repo, capsys):
+    shutil.copy(FIXTURES / "clean_code.py", git_repo / "clean.py")
+    rc = main(["check", "--no-ruff"])
+    capsys.readouterr()
+    assert rc == 0
+    rc2 = main(["report"])
+    out = capsys.readouterr().out
+    assert rc2 == 0 and "aicv verification report" in out
+
+
 def _git(cwd, *args):
     subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True)
 
