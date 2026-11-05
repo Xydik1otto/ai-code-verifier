@@ -522,6 +522,19 @@ def test_init_generates_severity_section(git_repo, capsys):
     assert load_severities(git_repo) == {}
 
 
+# ---------- v0.4: docs/rules.md автогенерація ----------
+
+def test_docs_rules_md_in_sync_with_rules_registry():
+    from aicv.checks import RULES
+    p = PROJECT_ROOT / "docs" / "rules.md"
+    assert p.is_file(), "docs/rules.md must exist (run scripts/gen_rules.py)"
+    text = p.read_text(encoding="utf-8")
+    assert "scripts/gen_rules.py" in text, "must carry the generation notice"
+    for rid, spec in RULES.items():
+        assert f"`{rid}`" in text, f"rule {rid} missing from docs/rules.md"
+        assert spec["name"] in text, f"description of {rid} missing from docs/rules.md"
+
+
 # ---------- CLI end-to-end in a scratch git repo ----------
 
 def _git(cwd, *args):
